@@ -63,7 +63,7 @@ main{padding-block:16px 96px}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(158px,1fr));gap:12px}
 .card{display:flex;flex-direction:column;text-align:left;padding:0;border:1px solid var(--line);background:var(--surface);border-radius:var(--r);overflow:hidden;min-width:0}
 .cover{position:relative;aspect-ratio:4/5;background:var(--sunken);display:grid;place-items:center;color:var(--muted);font-size:12px}
-.cover img,.cover video{width:100%;height:100%;object-fit:cover;display:block}
+.cover img,.cover video{width:100%;height:100%;object-fit:contain;display:block}
 .cover .where{position:absolute;left:8px;top:8px;background:var(--surface);color:var(--ink);border-radius:6px;padding:1px 7px;font-size:11px;font-weight:600;max-width:calc(100% - 16px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .cover .cnt{position:absolute;right:8px;bottom:8px;background:var(--shade);color:#fff;border-radius:6px;padding:0 6px;font-size:11px;font-family:var(--mono)}
 .card .body{padding:9px 10px 11px;display:flex;flex-direction:column;gap:4px;min-width:0}
@@ -145,6 +145,8 @@ a.link{color:var(--accent);font-weight:600;overflow-wrap:anywhere}
 .pn{display:flex;flex-direction:column;min-width:0;overflow-wrap:anywhere;font-weight:600;font-size:14px}
 .pn small{font-weight:400;color:var(--muted)}
 button.thumb{padding:0}
+div.thumb{width:auto;height:240px;max-width:92%}
+div.thumb img,div.thumb video{width:auto;height:100%;max-width:100%;object-fit:contain}
 input[type=number]{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:8px 10px;min-height:38px;max-width:100%}
 .tf{width:92px}
 .trow{display:grid;grid-template-columns:1fr auto 1fr auto auto auto;gap:6px;align-items:center}
@@ -255,6 +257,9 @@ function tempEditor(list,prefix){
 }
 const MARK_TAG={rebuy:'재구매',travel:'여행',tryon:'입어봄'};
 const norm=it=>{if((it.marks||[]).length) it.tags=[...new Set([...(it.tags||[]),...it.marks.map(k=>MARK_TAG[k]).filter(Boolean)])];if(it.measures) it.measures=it.measures.map(normMeas);return it};
+const INFO_PROMPT=`첨부 이미지는 쇼핑몰 상품 페이지를 캡쳐한 것(또는 그 일부)입니다. 이미지에 실제로 보이는 글자만 읽어서 아래 형식의 JSON 하나만 답하세요. 보이지 않는 값은 추측하지 말고 null로 두세요.
+{"brand": 브랜드명 또는 null, "name": 상품명 그대로 또는 null, "price": 지금 살 수 있는 판매 금액 숫자(할인가가 있으면 할인가, 취소선이 그어진 정가가 아닌 쪽) 또는 null, "currency": "KRW" 같은 통화 코드, "store": 화면에 쇼핑몰·앱 이름이 보일 때만 그 이름, 아니면 null}
+금액은 쉼표와 통화 기호 없이 숫자로만 적으세요.`;
 const SIZE_PROMPT=`첨부 이미지는 의류 상품 페이지의 실측 사이즈표 캡쳐입니다. 이미지에 실제로 보이는 수치만 읽어서 아래 형식의 JSON 하나만 답하세요. 보이지 않는 값은 추측하거나 채우지 마세요.
 {"sizes": [{"size": 사이즈 이름(예: "M", "FREE", 표에 사이즈 구분이 없으면 null), "measures": [{"k": 부위 이름 그대로(예: "어깨너비"), "v": 수치를 문자열로(예: "46")}]}]}
 표에 사이즈가 여러 개면 모두 넣으세요. 단위 글자는 빼고 숫자만 적으세요.`;
@@ -487,7 +492,7 @@ function toJpeg(src,sx,sy,sw,sh,max){
 async function shrink(file,max){
   try{const bmp=await createImageBitmap(file);const b=await toJpeg(bmp,0,0,bmp.width,bmp.height,max);if(bmp.close)bmp.close();return b||file}catch(e){return file}
 }
-function openCropper(file,onDone,more){
+function openCropper(file,onDone,more,lab){
   const isUrl=typeof file==='string';
   const url=isUrl?file:URL.createObjectURL(file);
   const img=h('img',{src:url,alt:'자를 이미지',draggable:'false'});
@@ -517,10 +522,10 @@ function openCropper(file,onDone,more){
     if(keep){toast('넣었어요. 다음 영역을 골라 주세요');return}
     sh.close();if(!isUrl) URL.revokeObjectURL(url);
   };
-  const sh=openSheet('원하는 부분만 자르기',h('div',{class:'crop-stage gut'},wrap),
-    h('div',{class:'ft gut'},h('button',{type:'button',class:'btn',onclick:()=>done(true)},'전체 사용'),h('span',{class:'grow'}),
+  const sh=openSheet(lab&&lab.title||'원하는 부분만 자르기',h('div',{class:'crop-stage gut'},wrap),
+    h('div',{class:'ft gut'},h('button',{type:'button',class:'btn',onclick:()=>done(true)},lab&&lab.whole||'전체 사용'),h('span',{class:'grow'}),
       more?h('button',{type:'button',class:'btn',onclick:()=>done(false,true)},'넣고 더 자르기'):null,
-      h('button',{type:'button',class:'btn primary',onclick:()=>done(false)},'이 영역 넣기')));
+      h('button',{type:'button',class:'btn primary',onclick:()=>done(false)},lab&&lab.part||'이 영역 넣기')));
 }
 
 /* ---------- editor ---------- */
@@ -601,7 +606,26 @@ function openEditor(src,id){
       toast({not_granted:'Claude 사용을 허용해야 캡쳐를 읽을 수 있어요',rate_limited:'사용량 한도에 걸렸어요. 잠시 후 다시 시도해 주세요',image_rejected:'이 이미지는 읽을 수 없어요',invalid_json:'내용을 읽지 못했어요. 다시 시도해 주세요'}[code]||('읽지 못했어요 ('+(code||'오류')+')'));
     }
     readLbl.textContent='사이즈표 캡쳐에서 읽기';
-  } inp('store',{placeholder:'직접 입력'}); inp('category',{placeholder:'직접 입력'});
+  } const infoBtn=filePick('캡쳐에서 이름·가격 읽기',{accept:'image/*'},f=>openCropper(f[0],b=>readInfo(b),false,{title:'읽을 부분 고르기',whole:'전체 읽기',part:'이 부분 읽기'})),infoLbl=infoBtn.firstChild;
+  async function readInfo(blob){
+    if(!sample){toast('이 화면에서는 캡쳐 읽기를 쓸 수 없어요. 직접 입력해 주세요');return}
+    infoLbl.textContent='읽는 중…';
+    try{
+      const r=await sample.json(INFO_PROMPT,{images:[blob]})||{};
+      const got=[];
+      if(r.name){const nm=String(r.name).trim(),br=r.brand?String(r.brand).trim():'';F.name.value=((br&&!nm.includes(br)?br+' ':'')+nm).slice(0,150);got.push('이름')}
+      const pr=Number(r.price);
+      if(isFinite(pr)&&pr>0){const own=d.status==='owned';(own?F.boughtPrice:F.salePrice).value=pr;got.push(own?'구매 가격':'평소 할인가')}
+      if(CUR[r.currency]) F.currency.value=r.currency;
+      if(r.store&&!F.store.value){F.store.value=String(r.store).slice(0,40);got.push('구매처')}
+      toast(got.length?got.join(' · ')+' 칸을 채웠어요. 맞는지 확인해 주세요':'이름이나 가격을 찾지 못했어요. 글자가 보이는 부분을 골라 주세요');
+    }catch(e){
+      const code=e&&e.code;
+      toast({not_granted:'Claude 사용을 허용해야 캡쳐를 읽을 수 있어요',rate_limited:'사용량 한도에 걸렸어요. 잠시 후 다시 시도해 주세요',image_rejected:'이 이미지는 읽을 수 없어요',invalid_json:'내용을 읽지 못했어요. 다시 시도해 주세요'}[code]||('읽지 못했어요 ('+(code||'오류')+')'));
+    }
+    infoLbl.textContent='캡쳐에서 이름·가격 읽기';
+  }
+  inp('store',{placeholder:'직접 입력'}); inp('category',{placeholder:'직접 입력'});
   F.category.addEventListener('change',()=>{d.measures=arrangeMeas(d.measures.filter(m=>m.v||(!m.std&&m.k)),partsFor(F.category.value));drawMeas()});
   inp('salePrice',{inputmode:'decimal',placeholder:'자주 보이는 할인 가격',value:d.salePrice??''});
   inp('tags',{placeholder:'쉼표로 구분 · 예: 여름, 린넨',value:(d.tags||[]).join(', ')});
@@ -619,6 +643,8 @@ function openEditor(src,id){
         filePick('통째로 넣기 (사진·동영상)',{accept:'image/*,video/*',multiple:true},f=>api.addFiles(f))),
       pasteBox(b=>api.crop(b)),
       h('span',{class:'hint'},'통째로 넣은 사진도 자르기를 누르면 원하는 부분만 남길 수 있어요. 버튼을 눌러도 사진 선택 창이 안 열리는 앱에서는 같은 주소를 Chrome에서 열거나, 복사한 사진을 위 칸에 붙여넣어 주세요. 동영상은 파일당 20MB까지.')),
+    h('div',{class:'fld'},h('span',{class:'lb'},'이름 · 가격 자동 입력'),h('div',{class:'chips'},infoBtn),
+      h('span',{class:'hint'},'상품 페이지 캡쳐를 고른 뒤 이름과 가격이 보이는 부분을 지정하면 읽어서 아래 칸에 채워요. 이 캡쳐는 사진으로 저장되지 않아요.')),
     fld('링크','link',F.link),
     fld('이름','name',F.name),
     fld('구매처','store',pickChips('store',storeOpts),F.store),
