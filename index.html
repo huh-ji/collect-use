@@ -227,9 +227,9 @@ const tnum=v=>{const n=parseFloat(v);return isFinite(n)?n:null};
 const cleanTemps=l=>(l||[]).map(r=>{let lo=tnum(r.lo),hi=tnum(r.hi);if(lo==null&&hi==null) return null;if(lo==null) lo=hi;if(hi==null) hi=lo;if(lo>hi)[lo,hi]=[hi,lo];return {lo,hi,w:r.w||''}}).filter(Boolean);
 const tempText=l=>cleanTemps(l).map(r=>(r.lo===r.hi?r.lo:r.lo+'~'+r.hi)+'℃'+(r.w?' '+r.w:'')).join(' · ');
 function tempMatch(x){
-  const a=tnum(ui.tLo),b=tnum(ui.tHi);if(a==null&&b==null) return true;
+  const a=tnum(ui.tLo),b=tnum(ui.tHi);if(a==null&&b==null&&!ui.w) return true;
   const lo=Math.min(a??b,b??a),hi=Math.max(a??b,b??a);
-  return cleanTemps(x.temps).some(r=>r.lo<=hi&&r.hi>=lo);
+  return cleanTemps(x.temps).some(r=>(!ui.w||r.w===ui.w)&&((a==null&&b==null)||(r.lo<=hi&&r.hi>=lo)));
 }
 const lookPhotos=l=>l.photos&&l.photos.length?l.photos:(l.media?[l.media]:[]);
 function tempEditor(list,prefix){
@@ -285,7 +285,7 @@ let toastT;function toast(msg){document.querySelectorAll('.toast').forEach(t=>t.
 /* ---------- data ---------- */
 let db=null,assets=null,downloads=null,sample=null,local=false,loaded=false;
 let items=[],looks=[];
-const ui={tab:'wish',q:'',store:'',cat:'',tag:'',mark:'',adj:true,meas:false,tLo:'',tHi:''};
+const ui={tab:'wish',q:'',store:'',cat:'',tag:'',mark:'',adj:true,meas:false,tLo:'',tHi:'',w:''};
 try{const t=localStorage.getItem('cu-tab');if(t) ui.tab=t;if(localStorage.getItem('cu-adj')==='0') ui.adj=false}catch(e){}
 
 async function boot(){
@@ -323,7 +323,6 @@ function visible(){
     if(ui.cat&&it.category!==ui.cat) return false;
     if(ui.tag&&!(it.tags||[]).includes(ui.tag)) return false;
     if(ui.meas&&!hasMeas(it)) return false;
-    if(!tempMatch(it)) return false;
     if(ui.mark&&!(it.marks||[]).includes(ui.mark)) return false;
     if(q){const hay=[it.name,it.localName,it.place,it.size,it.fit,it.store,it.category,it.memo,(it.tags||[]).join(' ')].join(' ').toLowerCase();if(!hay.includes(q)) return false}
     return true;
@@ -345,8 +344,9 @@ function renderFilters(){
   const q=keep||h('input',{type:'search',id:'f-q',placeholder:'이름·태그·메모 검색','aria-label':'검색',oninput:e=>{ui.q=e.target.value;renderList()}});
   const tin=(id,key,ph)=>h('input',{type:'number',id,class:'tf',placeholder:ph,'aria-label':ph,value:ui[key],oninput:e=>{ui[key]=e.target.value;renderList()}});
   const tf=[tin('f-tlo','tLo','기온 최저'),h('span',{class:'hint'},'~'),tin('f-thi','tHi','최고 ℃')];
-  if(ui.tab==='look'){$('#filters').replaceChildren(q,...tf);return}
-  $('#filters').replaceChildren(q,...tf,sel('f-store','구매처',stores,'store'),sel('f-cat','카테고리',cats,'cat'),...(tags.length?[sel('f-tag','태그',tags,'tag')]:[]),h('button',{type:'button',class:'chip','aria-pressed':String(ui.meas),onclick:()=>{ui.meas=!ui.meas;render()}},'실측 있음'),...(hasAdj?[h('button',{type:'button',class:'chip','aria-pressed':String(ui.adj),onclick:()=>{ui.adj=!ui.adj;try{localStorage.setItem('cu-adj',ui.adj?'1':'0')}catch(e){};render()}},'주문 할인 반영')]:[]),
+  const ws=h('select',{id:'f-w','aria-label':'날씨',onchange:e=>{ui.w=e.target.value;renderList()}},h('option',{value:''},'날씨 전체'),WEATHER.map(x=>h('option',{value:x},x)));ws.value=ui.w;
+  if(ui.tab==='look'){$('#filters').replaceChildren(q,...tf,ws);return}
+  $('#filters').replaceChildren(q,sel('f-store','구매처',stores,'store'),sel('f-cat','카테고리',cats,'cat'),...(tags.length?[sel('f-tag','태그',tags,'tag')]:[]),h('button',{type:'button',class:'chip','aria-pressed':String(ui.meas),onclick:()=>{ui.meas=!ui.meas;render()}},'실측 있음'),...(hasAdj?[h('button',{type:'button',class:'chip','aria-pressed':String(ui.adj),onclick:()=>{ui.adj=!ui.adj;try{localStorage.setItem('cu-adj',ui.adj?'1':'0')}catch(e){};render()}},'주문 할인 반영')]:[]),
     );
 }
 function cover(it){
