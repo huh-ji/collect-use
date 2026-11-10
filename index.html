@@ -563,7 +563,7 @@ function openEditor(src,id){
       else if(f.type.startsWith('image/')) addBlob(await shrink(f),'image');
     }
   }
-  const api={addFiles,crop:file=>openCropper(file,b=>addBlob(b,'image'),true),readSize:f=>readSize(f)};
+  const api={addFiles,crop:file=>openCropper(file,b=>addBlob(b,'image')),readSize:f=>readSize(f)};
 
   inp('link',{type:'url',inputmode:'url',placeholder:'https://…'});
   function absorbLink(text){
@@ -738,7 +738,7 @@ function openLookEditor(src){
     strip.hidden=!strip.children.length;
   }
   const addBlob=b=>{picks.push({blob:b,url:URL.createObjectURL(b)});drawStrip()};
-  const api={crop:f=>openCropper(f,addBlob,true),readSize:()=>{},
+  const api={crop:f=>openCropper(f,addBlob),readSize:()=>{},
     addFiles:async files=>{for(const f of files){if(f.type.startsWith('image/')) addBlob(await shrink(f));else toast('코디에는 사진만 넣을 수 있어요')}}};
   const memo=h('textarea',{id:'l-memo',placeholder:'색 조합, 참고할 점, 출처 등',value:d.memo||''});
   const tags=h('input',{type:'text',id:'l-tags',placeholder:'쉼표로 구분 · 예: 가을, 베이지',value:(d.tags||[]).join(', ')});
