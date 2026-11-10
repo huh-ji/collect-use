@@ -200,8 +200,16 @@ function pair(m){const n=parseFloat(m.v);if(!GIRTH.includes(m.k)||!isFinite(n)) 
 const measText=m=>{const p=pair(m);return p?'단면 '+fmtN(p.flat)+' (둘레 '+fmtN(p.round)+')':m.v};
 const normMeas=m=>{const c=canonPart(m.k);return {k:c.k,v:String(m.v??''),t:m.t||c.t}};
 const hasMeas=it=>(it.measures||[]).some(m=>String(m.v||'').trim());
-function arrangeMeas(list){
-  const std=PARTS.map(p=>({k:p,v:'',t:'flat',std:true})),extra=[];
+const PART_SETS={top:['어깨','가슴','소매','소매통','총장','밑단'],bottom:['허리','엉덩이','허벅지','밑위','밑단','총장'],dress:['어깨','가슴','허리','엉덩이','소매','총장']};
+function partsFor(cat){
+  const s=String(cat||'');
+  if(/원피스|드레스/.test(s)) return PART_SETS.dress;
+  if(/하의|바지|팬츠|슬랙스|데님|스커트|치마|쇼츠/.test(s)) return PART_SETS.bottom;
+  if(/상의|아우터|니트|셔츠|블라우스|티셔츠|맨투맨|후드|자켓|재킷|코트|가디건|패딩/.test(s)) return PART_SETS.top;
+  return PARTS;
+}
+function arrangeMeas(list,parts){
+  const std=(parts||PARTS).map(p=>({k:p,v:'',t:'flat',std:true})),extra=[];
   for(const m0 of list){
     const m=normMeas(m0);if(!m.k&&!m.v) continue;
     const s=std.find(x=>x.k===m.k);
@@ -465,13 +473,13 @@ let activeEditor=null;
 function openEditor(src,id){
   const d=Object.assign({status:ui.tab==='owned'?'owned':'wish',name:'',link:'',store:'',category:'',currency:'KRW',salePrice:null,boughtPrice:null,boughtDate:'',marks:[],tags:[],memo:'',media:[]},src||{});
   d.media=(d.media||[]).map(m=>Object.assign({},m)); d.marks=[...(d.marks||[])];
-  d.tags=[...(d.tags||[])]; d.measures=arrangeMeas(d.measures||[]);let measOpen=d.measures.some(m=>m.v); if(d.place&&!d.tags.includes(d.place)) d.tags.push(d.place);
+  d.tags=[...(d.tags||[])]; d.measures=arrangeMeas(d.measures||[],partsFor(d.category));let measOpen=d.measures.some(m=>m.v); if(d.place&&!d.tags.includes(d.place)) d.tags.push(d.place);
   if(d.localName) d.memo=[d.localName,d.memo].filter(Boolean).join('\n');
   const removed=[];
   const F={};
   const inp=(key,attrs)=>(F[key]=h('input',Object.assign({type:'text',id:'e-'+key,value:d[key]??'',autocomplete:'off'},attrs)));
   const fld=(label,key,...kids)=>h('div',{class:'fld'},h('label',{for:'e-'+key},label),kids);
-  const pickChips=(key,opts)=>h('div',{class:'chips'},opts.map(o=>h('button',{type:'button',class:'chip',onclick:()=>{F[key].value=o}},o)));
+  const pickChips=(key,opts)=>h('div',{class:'chips'},opts.map(o=>h('button',{type:'button',class:'chip',onclick:()=>{F[key].value=o;F[key].dispatchEvent(new Event('change'))}},o)));
 
   const statusBtns=h('div',{class:'tabs'},[['wish','위시 (살 것)'],['owned','소장 (산 것)']].map(([k,l])=>h('button',{type:'button','data-k':k,onclick:()=>{d.status=k;syncStatus()}},l)));
   const ownedRow=h('div',{class:'row'},
@@ -529,7 +537,7 @@ function openEditor(src,id){
     try{
       const r=await sample.json(SIZE_PROMPT,{images:[await shrink(file,2400)]});
       const sizes=(r&&Array.isArray(r.sizes)?r.sizes:[]).filter(s=>s&&Array.isArray(s.measures)&&s.measures.length);
-      const apply=s=>{d.measures=arrangeMeas(s.measures.map(m=>({k:String(m&&m.k||'').slice(0,30),v:String(m&&m.v!=null?m.v:'').slice(0,20)})));measOpen=true;drawMeas()};
+      const apply=s=>{d.measures=arrangeMeas(s.measures.map(m=>({k:String(m&&m.k||'').slice(0,30),v:String(m&&m.v!=null?m.v:'').slice(0,20)})),partsFor(F.category.value));measOpen=true;drawMeas()};
       if(!sizes.length) toast('실측 수치를 찾지 못했어요. 표가 다 보이게 캡쳐해 주세요');
       else if(sizes.length===1){apply(sizes[0]);if(sizes[0].size&&!F.size.value) F.size.value=String(sizes[0].size);sizePick.replaceChildren();toast('읽었어요. 수치가 맞는지 확인해 주세요')}
       else sizePick.replaceChildren(h('span',{class:'hint'},'어느 사이즈를 넣을까요?'),...sizes.map(s=>h('button',{type:'button',class:'chip',onclick:()=>{F.size.value=String(s.size||'');apply(s)}},String(s.size||'?'))));
@@ -539,6 +547,7 @@ function openEditor(src,id){
     }
     readBtn.disabled=false;readBtn.textContent='사이즈표 캡쳐에서 읽기';
   } inp('store',{placeholder:'직접 입력'}); inp('category',{placeholder:'직접 입력'});
+  F.category.addEventListener('change',()=>{d.measures=arrangeMeas(d.measures.filter(m=>m.v||(!m.std&&m.k)),partsFor(F.category.value));drawMeas()});
   inp('salePrice',{inputmode:'decimal',placeholder:'자주 보이는 할인 가격',value:d.salePrice??''});
   inp('tags',{placeholder:'쉼표로 구분 · 예: 여름, 린넨',value:(d.tags||[]).join(', ')});
   F.currency=h('select',{id:'e-currency'},Object.keys(CUR).map(c=>h('option',{value:c},c+' '+CUR[c])));F.currency.value=d.currency||'KRW';
@@ -565,7 +574,7 @@ function openEditor(src,id){
       measBox,sizePick,
       
       h('div',{class:'chips'},h('button',{type:'button',class:'btn',onclick:()=>{measOpen=true;drawMeas()}},'실측 입력'),h('button',{type:'button',class:'btn',onclick:()=>{measOpen=true;d.measures.push({k:'',v:'',t:'flat'});drawMeas();const el=$('#e-mk-'+(d.measures.length-1));if(el) el.focus()}},'+ 이 제품만의 항목'),readBtn),
-      h('span',{class:'hint'},'수치는 cm 기준. 기본 항목은 해당하는 것만 채우고 나머지는 비워 두세요. 기본 항목에 없는 부위는 이 제품만의 항목으로 추가돼요. 가슴·허리·엉덩이·허벅지·밑단·소매통은 단면과 둘레를 함께 보여 줘요.')),
+      h('span',{class:'hint'},'수치는 cm 기준. 기본 항목은 카테고리(상의·하의·원피스)에 맞춰 바뀌고, 해당하는 것만 채우고 나머지는 비워 두세요. 기본 항목에 없는 부위는 이 제품만의 항목으로 추가돼요. 가슴·허리·엉덩이·허벅지·밑단·소매통은 단면과 둘레를 함께 보여 줘요.')),
     fld('태그','tags',tagOpts.length?h('div',{class:'chips'},tagOpts.map(t=>h('button',{type:'button',class:'chip',onclick:()=>{const cur=F.tags.value.split(',').map(s=>s.trim()).filter(Boolean);if(!cur.includes(t)) F.tags.value=[...cur,t].join(', ')}},'#'+t))):null,F.tags),
     fld('메모','memo',F.memo));
   const save=h('button',{type:'button',class:'btn primary',onclick:onSave},'저장');
