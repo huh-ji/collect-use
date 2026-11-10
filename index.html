@@ -179,6 +179,8 @@ const MAX_VIDEO=20*1024*1024;
 const FITS=['슬림핏','정핏','세미오버','오버핏'];
 const PARTS=['어깨','가슴','소매','총장','허리','엉덩이','허벅지','밑위','밑단'];
 const hasMeas=it=>(it.measures||[]).length>0;
+const MARK_TAG={rebuy:'재구매',travel:'여행',tryon:'입어봄'};
+const norm=it=>{if((it.marks||[]).length) it.tags=[...new Set([...(it.tags||[]),...it.marks.map(k=>MARK_TAG[k]).filter(Boolean)])];return it};
 const SIZE_PROMPT=`첨부 이미지는 의류 상품 페이지의 실측 사이즈표 캡쳐입니다. 이미지에 실제로 보이는 수치만 읽어서 아래 형식의 JSON 하나만 답하세요. 보이지 않는 값은 추측하거나 채우지 마세요.
 {"sizes": [{"size": 사이즈 이름(예: "M", "FREE", 표에 사이즈 구분이 없으면 null), "measures": [{"k": 부위 이름 그대로(예: "어깨너비"), "v": 수치를 문자열로(예: "46")}]}]}
 표에 사이즈가 여러 개면 모두 넣으세요. 단위 글자는 빼고 숫자만 적으세요.`;
@@ -223,7 +225,7 @@ async function boot(){
   if(!db){ local=true;loaded=true;showNote('이 화면에서는 저장소에 연결할 수 없어 기록이 저장되지 않습니다. claude.ai에 로그인한 상태로 열어 주세요.');render();return }
   const timer=setTimeout(()=>showNote('기록을 아직 불러오지 못했어요. 연결되면 자동으로 표시됩니다.'),10000);
   db.collection('items').onSnapshot(snap=>{
-    items=snap.docs.map(d=>Object.assign({id:d.id},d.data()));
+    items=snap.docs.map(d=>norm(Object.assign({id:d.id},d.data())));
     loaded=true;
     if(!snap.metadata.fromCache){clearTimeout(timer);showNote('')}
     render();
@@ -270,7 +272,7 @@ function renderFilters(){
   const keep=$('#f-q');
   const q=keep||h('input',{type:'search',id:'f-q',placeholder:'이름·태그·메모 검색','aria-label':'검색',oninput:e=>{ui.q=e.target.value;renderList()}});
   $('#filters').replaceChildren(q,sel('f-store','구매처',stores,'store'),sel('f-cat','카테고리',cats,'cat'),...(tags.length?[sel('f-tag','태그',tags,'tag')]:[]),h('button',{type:'button',class:'chip','aria-pressed':String(ui.meas),onclick:()=>{ui.meas=!ui.meas;render()}},'실측 있음'),...(hasAdj?[h('button',{type:'button',class:'chip','aria-pressed':String(ui.adj),onclick:()=>{ui.adj=!ui.adj;try{localStorage.setItem('cu-adj',ui.adj?'1':'0')}catch(e){};render()}},'주문 할인 반영')]:[]),
-    ...MARKS.map(([k,l])=>h('button',{type:'button',class:'chip','aria-pressed':String(ui.mark===k),onclick:()=>{ui.mark=ui.mark===k?'':k;render()}},l)));
+    );
 }
 function cover(it){
   const m=(it.media||[])[0];
@@ -294,7 +296,7 @@ function renderList(){
   const list=visible();
   $('#grid').replaceChildren(...list.map(it=>h('button',{type:'button',class:'card',onclick:()=>openDetail(it.id)},cover(it),
     h('div',{class:'body'},h('span',{class:'nm'},it.name||it.localName||'(이름 없음)'),priceEl(it),it.qty>1?h('span',{class:'loc'},'수량 '+it.qty+'개'):null,
-      (()=>{const ls=[...markLabels(it).map(l=>l.split('·')[0]),...(hasMeas(it)?['실측']:[])];return ls.length?h('div',{class:'marks'},ls.map(l=>h('span',{class:'mark'},l))):null})()))));
+      (()=>{const ls=hasMeas(it)?['실측']:[];return ls.length?h('div',{class:'marks'},ls.map(l=>h('span',{class:'mark'},l))):null})()))));
   const sum=$('#summary');
   if(!loaded){sum.textContent='기록을 불러오는 중…'}
   else{
@@ -333,7 +335,7 @@ function openDetail(id){
   add('구매처',it.store); add('카테고리',it.category); add('여행지',it.place);
   add('평소 할인가',it.salePrice!=null?h('span',{class:'price'},money(it.salePrice,it.currency)):null);
   if(it.status==='owned'){ add('구매 가격',it.boughtPrice!=null?h('span',{class:'price'},money(it.boughtPrice,it.currency)):null); if(it.orderAdj&&it.boughtPrice!=null) add('주문 할인 반영가',h('span',{class:'price'},money(it.boughtPrice+it.orderAdj,it.currency))); if(it.qty>1) add('수량',it.qty+'개'); add('구매일',it.boughtDate); }
-  add('표시',markLabels(it).join(', '));
+  
   add('사이즈',it.size); add('핏',it.fit);
   add('태그',(it.tags||[]).map(t=>'#'+t).join(' '));
   const body=h('div',{class:'bd gut'},
@@ -484,7 +486,7 @@ function openEditor(src,id){
   F.memo=h('textarea',{id:'e-memo',placeholder:'사이즈, 색상, 현지 이름, 매장 위치, 입어 본 느낌 등',value:d.memo||''});
   const markBtns=h('div',{class:'chips'},MARKS.map(([k,l])=>{const b=h('button',{type:'button',class:'chip','aria-pressed':String(d.marks.includes(k)),onclick:()=>{const on=!d.marks.includes(k);d.marks=on?[...d.marks,k]:d.marks.filter(x=>x!==k);b.setAttribute('aria-pressed',String(on))}},l);return b}));
   const storeOpts=[...new Set([...STORES.map(s=>s[0]),...used('store')])],catOpts=[...new Set([...CATS,...used('category')])];
-  const tagOpts=[...new Set(items.flatMap(i=>i.tags||[]))].slice(0,14);
+  const tagOpts=[...new Set([...items.flatMap(i=>i.tags||[]),'재구매','여행','입어봄'])].slice(0,16);
 
   const body=h('div',{class:'bd gut'},
     statusBtns,
@@ -505,7 +507,6 @@ function openEditor(src,id){
       h('div',{class:'chips'},PARTS.map(p=>h('button',{type:'button',class:'chip',onclick:()=>{d.measures.push({k:p,v:''});drawMeas();const el=$('#e-mv-'+(d.measures.length-1));if(el) el.focus()}},'+ '+p))),
       h('div',{class:'chips'},h('button',{type:'button',class:'btn',onclick:()=>{d.measures.push({k:'',v:''});drawMeas()}},'+ 빈 줄'),readBtn),
       h('span',{class:'hint'},'수치는 cm 기준으로 적어 주세요. 사이즈표에 여러 사이즈가 있으면 읽은 뒤 고를 수 있어요.')),
-    h('div',{class:'fld'},h('span',{class:'lb'},'표시'),markBtns),
     fld('태그','tags',tagOpts.length?h('div',{class:'chips'},tagOpts.map(t=>h('button',{type:'button',class:'chip',onclick:()=>{const cur=F.tags.value.split(',').map(s=>s.trim()).filter(Boolean);if(!cur.includes(t)) F.tags.value=[...cur,t].join(', ')}},'#'+t))):null,F.tags),
     fld('메모','memo',F.memo));
   const save=h('button',{type:'button',class:'btn primary',onclick:onSave},'저장');
@@ -530,7 +531,7 @@ function openEditor(src,id){
       const owned=d.status==='owned';
       const data={status:d.status,name,link:F.link.value.trim(),store:F.store.value.trim(),category:F.category.value.trim(),
         currency:F.currency.value,salePrice:num(F.salePrice.value),boughtPrice:owned?num(F.boughtPrice.value):null,boughtDate:owned?F.boughtDate.value:'',qty:owned?(num(F.qty.value)||1):1,orderAdj:owned?(d.orderAdj||null):null,orderId:d.orderId||null,
-        marks:d.marks,tags:[...new Set(F.tags.value.split(/[,#]/).map(t=>t.trim()).filter(Boolean))],memo:F.memo.value.trim(),media,size:F.size.value.trim(),fit:F.fit.value.trim(),
+        marks:[],tags:[...new Set(F.tags.value.split(/[,#]/).map(t=>t.trim()).filter(Boolean))],memo:F.memo.value.trim(),media,size:F.size.value.trim(),fit:F.fit.value.trim(),
         measures:d.measures.map(m=>({k:m.k.trim(),v:String(m.v).trim()})).filter(m=>m.k||m.v),
         createdAt:d.createdAt||Date.now(),updatedAt:Date.now()};
       await persist(id,data);
