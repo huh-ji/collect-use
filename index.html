@@ -390,23 +390,7 @@ function cover(it){
   return c;
 }
 const paid=it=>it.boughtPrice;
-async function saveExtra(it,n){
-  it.extraDisc=n;
-  if(local) return;
-  await db.collection('items').doc(it.id).update({extraDisc:n,boughtPrice:it.boughtPrice,orderAdj:null});
-}
-function priceRow(it){
-  let on=false,extra=Number(it.extraDisc)||0;
-  const val=h('span',{class:'price'}),note=h('span',{class:'hint'});
-  const inp=h('input',{type:'text',id:'d-extra',class:'tf',inputmode:'decimal',placeholder:'추가 할인 금액','aria-label':'추가 할인 금액',value:extra||''});
-  const box=h('div',{class:'xrow',hidden:true},inp,h('span',{class:'hint'},'장바구니 쿠폰·적립금·포인트로 더 할인받은 금액'));
-  const paint=()=>{val.textContent=money(it.boughtPrice+(on?extra:0),it.currency);note.textContent=on?'추가 할인 전 금액':''};
-  const tg=h('button',{type:'button',class:'chip','aria-pressed':'false',onclick:()=>{on=!on;tg.setAttribute('aria-pressed',String(on));box.hidden=!on;paint()}},'추가 할인');
-  inp.addEventListener('input',()=>{extra=num(inp.value)||0;paint()});
-  inp.addEventListener('change',()=>{saveExtra(it,extra).catch(()=>toast('추가 할인 금액을 저장하지 못했어요'))});
-  paint();
-  return [h('div',{class:'xrow'},val,tg,note),box];
-}
+
 function priceEl(it){
   const owned=it.status==='owned';
   const v=owned&&it.boughtPrice!=null?paid(it):it.salePrice;
@@ -475,7 +459,7 @@ function openDetail(id){
   add('상태',it.status==='owned'?'소장':'위시');
   add('구매처',it.store); add('카테고리',it.category); add('여행지',it.place);
   
-  if(it.status==='owned'){ add('구매 가격',it.boughtPrice!=null?priceRow(it):null); if(it.qty>1) add('수량',it.qty+'개'); add('구매일',it.boughtDate); }
+  if(it.status==='owned'){ add('구매 가격',it.boughtPrice!=null?h('span',{class:'price'},money(it.boughtPrice,it.currency)):null); if(it.extraOn&&it.extraDisc&&it.boughtPrice!=null) add('추가 할인 전',h('div',{class:'xrow'},h('span',{class:'price'},money(it.boughtPrice+it.extraDisc,it.currency)),h('span',{class:'hint'},'추가 할인 '+money(it.extraDisc,it.currency)))); if(it.qty>1) add('수량',it.qty+'개'); add('구매일',it.boughtDate); }
   add('평소 할인가',it.salePrice!=null?h('span',{class:'price'},money(it.salePrice,it.currency)):null);
   
   add('사이즈',it.size); add('핏',it.fit); add('입은 날 기온',tempText(it.temps));
@@ -569,7 +553,18 @@ function openEditor(src,id){
     fld('구매 가격','boughtPrice',inp('boughtPrice',{inputmode:'decimal',placeholder:'실제로 낸 금액',value:d.boughtPrice??''})),
     fld('수량','qty',inp('qty',{inputmode:'numeric',value:d.qty||1})),
     fld('구매일','boughtDate',inp('boughtDate',{type:'date'})));
-  function syncStatus(){statusBtns.querySelectorAll('button').forEach(b=>b.setAttribute('aria-selected',String(b.dataset.k===d.status)));ownedRow.hidden=d.status!=='owned'}
+  let exOn=!!d.extraOn;
+  const exInp=h('input',{type:'text',id:'e-extra',class:'tf',inputmode:'decimal',placeholder:'추가 할인 금액','aria-label':'추가 할인 금액',value:d.extraDisc||''});
+  const exNote=h('span',{class:'hint'});
+  const exTg=h('button',{type:'button',class:'chip',onclick:()=>{exOn=!exOn;syncEx()}},'추가 할인');
+  const extraRow=h('div',{class:'xrow'},exTg,exInp,exNote);
+  function syncEx(){
+    exTg.setAttribute('aria-pressed',String(exOn));exInp.hidden=!exOn;
+    const b=num(F.boughtPrice.value),x=num(exInp.value)||0;
+    exNote.textContent=!exOn?'':(b!=null?'추가 할인 전 '+money(b+x,F.currency?F.currency.value:d.currency):'쿠폰·적립금·포인트로 더 할인받은 금액');
+  }
+  exInp.addEventListener('input',syncEx);F.boughtPrice.addEventListener('input',syncEx);
+  function syncStatus(){statusBtns.querySelectorAll('button').forEach(b=>b.setAttribute('aria-selected',String(b.dataset.k===d.status)));ownedRow.hidden=extraRow.hidden=d.status!=='owned'}
 
   const strip=h('div',{class:'strip'});
   function drawStrip(){
@@ -671,7 +666,7 @@ function openEditor(src,id){
     fld('이름','name',F.name),
     fld('구매처','store',pickChips('store',storeOpts),F.store),
     fld('카테고리','category',pickChips('category',catOpts),F.category),
-    ownedRow,
+    ownedRow,extraRow,
     h('div',{class:'row'},fld('평소 할인가','salePrice',F.salePrice),fld('통화','currency',F.currency)),
     h('div',{class:'fld'},h('span',{class:'lb'},'실측 · 핏 (참고할 제품만)'),
       h('div',{class:'row'},fld('사이즈','size',F.size),fld('핏','fit',pickChips('fit',FITS),F.fit)),
@@ -687,7 +682,7 @@ function openEditor(src,id){
   const origClose=s.close;
   const closeAll=()=>{activeEditor=null;origClose()};
   s.sheet.querySelector('.hd .btn').onclick=closeAll;
-  activeEditor=api; syncStatus(); drawStrip(); drawMeas();
+  activeEditor=api; syncStatus(); drawStrip(); drawMeas(); syncEx();
 
   async function onSave(){
     const name=F.name.value.trim();
@@ -703,7 +698,7 @@ function openEditor(src,id){
       }
       const owned=d.status==='owned';
       const data={status:d.status,name,link:F.link.value.trim(),store:F.store.value.trim(),category:F.category.value.trim(),
-        currency:F.currency.value,salePrice:num(F.salePrice.value),boughtPrice:owned?num(F.boughtPrice.value):null,boughtDate:owned?F.boughtDate.value:'',qty:owned?(num(F.qty.value)||1):1,orderAdj:null,extraDisc:owned?(Number(d.extraDisc)||0):0,orderId:d.orderId||null,
+        currency:F.currency.value,salePrice:num(F.salePrice.value),boughtPrice:owned?num(F.boughtPrice.value):null,boughtDate:owned?F.boughtDate.value:'',qty:owned?(num(F.qty.value)||1):1,orderAdj:null,extraDisc:owned?(num(exInp.value)||0):0,extraOn:owned&&exOn,orderId:d.orderId||null,
         marks:[],tags:[...new Set(F.tags.value.split(/[,#]/).map(t=>t.trim()).filter(Boolean))],memo:F.memo.value.trim(),media,temps:cleanTemps(d.temps),size:F.size.value.trim(),fit:F.fit.value.trim(),
         measures:d.measures.map(m=>({k:canonPart(m.k).k,v:String(m.v).trim(),t:m.t||'flat'})).filter(m=>m.k&&m.v),
         createdAt:d.createdAt||Date.now(),updatedAt:Date.now()};
