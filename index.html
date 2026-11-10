@@ -226,10 +226,11 @@ const WEATHER=['맑음','흐림','비','눈','바람'];
 const tnum=v=>{const n=parseFloat(v);return isFinite(n)?n:null};
 const cleanTemps=l=>(l||[]).map(r=>{let lo=tnum(r.lo),hi=tnum(r.hi);if(lo==null&&hi==null) return null;if(lo==null) lo=hi;if(hi==null) hi=lo;if(lo>hi)[lo,hi]=[hi,lo];return {lo,hi,w:r.w||''}}).filter(Boolean);
 const tempText=l=>cleanTemps(l).map(r=>(r.lo===r.hi?r.lo:r.lo+'~'+r.hi)+'℃'+(r.w?' '+r.w:'')).join(' · ');
-function tempMatch(x){
-  const a=tnum(ui.tLo),b=tnum(ui.tHi);if(a==null&&b==null&&!ui.w) return true;
+function tempMatch(x,useW){
+  const w=useW?ui.w:'';
+  const a=tnum(ui.tLo),b=tnum(ui.tHi);if(a==null&&b==null&&!w) return true;
   const lo=Math.min(a??b,b??a),hi=Math.max(a??b,b??a);
-  return cleanTemps(x.temps).some(r=>(!ui.w||r.w===ui.w)&&((a==null&&b==null)||(r.lo<=hi&&r.hi>=lo)));
+  return cleanTemps(x.temps).some(r=>(!w||r.w===w)&&((a==null&&b==null)||(r.lo<=hi&&r.hi>=lo)));
 }
 const lookPhotos=l=>l.photos&&l.photos.length?l.photos:(l.media?[l.media]:[]);
 function tempEditor(list,prefix){
@@ -323,6 +324,7 @@ function visible(){
     if(ui.cat&&it.category!==ui.cat) return false;
     if(ui.tag&&!(it.tags||[]).includes(ui.tag)) return false;
     if(ui.meas&&!hasMeas(it)) return false;
+    if(!tempMatch(it,false)) return false;
     if(ui.mark&&!(it.marks||[]).includes(ui.mark)) return false;
     if(q){const hay=[it.name,it.localName,it.place,it.size,it.fit,it.store,it.category,it.memo,(it.tags||[]).join(' ')].join(' ').toLowerCase();if(!hay.includes(q)) return false}
     return true;
@@ -346,7 +348,7 @@ function renderFilters(){
   const tf=[tin('f-tlo','tLo','기온 최저'),h('span',{class:'hint'},'~'),tin('f-thi','tHi','최고 ℃')];
   const ws=h('select',{id:'f-w','aria-label':'날씨',onchange:e=>{ui.w=e.target.value;renderList()}},h('option',{value:''},'날씨 전체'),WEATHER.map(x=>h('option',{value:x},x)));ws.value=ui.w;
   if(ui.tab==='look'){$('#filters').replaceChildren(q,...tf,ws);return}
-  $('#filters').replaceChildren(q,sel('f-store','구매처',stores,'store'),sel('f-cat','카테고리',cats,'cat'),...(tags.length?[sel('f-tag','태그',tags,'tag')]:[]),h('button',{type:'button',class:'chip','aria-pressed':String(ui.meas),onclick:()=>{ui.meas=!ui.meas;render()}},'실측 있음'),...(hasAdj?[h('button',{type:'button',class:'chip','aria-pressed':String(ui.adj),onclick:()=>{ui.adj=!ui.adj;try{localStorage.setItem('cu-adj',ui.adj?'1':'0')}catch(e){};render()}},'주문 할인 반영')]:[]),
+  $('#filters').replaceChildren(q,...tf,sel('f-store','구매처',stores,'store'),sel('f-cat','카테고리',cats,'cat'),...(tags.length?[sel('f-tag','태그',tags,'tag')]:[]),h('button',{type:'button',class:'chip','aria-pressed':String(ui.meas),onclick:()=>{ui.meas=!ui.meas;render()}},'실측 있음'),...(hasAdj?[h('button',{type:'button',class:'chip','aria-pressed':String(ui.adj),onclick:()=>{ui.adj=!ui.adj;try{localStorage.setItem('cu-adj',ui.adj?'1':'0')}catch(e){};render()}},'주문 할인 반영')]:[]),
     );
 }
 function cover(it){
@@ -374,7 +376,7 @@ function itemFace(i){
 }
 function renderLooks(){
   const q=ui.q.trim().toLowerCase();
-  const list=looks.filter(l=>tempMatch(l)).filter(l=>!q||[l.memo,(l.tags||[]).join(' '),linked(l).map(i=>i.name).join(' ')].join(' ').toLowerCase().includes(q)).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
+  const list=looks.filter(l=>tempMatch(l,true)).filter(l=>!q||[l.memo,(l.tags||[]).join(' '),linked(l).map(i=>i.name).join(' ')].join(' ').toLowerCase().includes(q)).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
   $('#grid').replaceChildren(...list.map(l=>{
     const n=linked(l).length,tg=l.tags||[],ph=lookPhotos(l),tt=tempText(l.temps);
     return h('button',{type:'button',class:'card',onclick:()=>openLookDetail(l.id)},
@@ -595,9 +597,9 @@ function openEditor(src,id){
     statusBtns,
     h('div',{class:'fld'},h('span',{class:'lb'},'사진 · 동영상'),strip,
       h('div',{class:'chips'},
-        h('button',{type:'button',class:'btn',onclick:()=>$('#pick-shot').click()},'캡쳐에서 잘라 넣기'),
-        h('button',{type:'button',class:'btn',onclick:()=>$('#pick-media').click()},'사진·동영상 추가')),
-      h('span',{class:'hint'},'캡쳐 한 장에서 여러 부분을 잘라 넣을 수 있고, 넣은 사진도 자르기를 눌러 다시 자를 수 있어요. PC에서는 Ctrl+V로 붙여넣기. 동영상은 파일당 20MB까지.')),
+        h('button',{type:'button',class:'btn',onclick:()=>$('#pick-shot').click()},'한 이미지에서 여러 개 잘라 넣기'),
+        h('button',{type:'button',class:'btn',onclick:()=>$('#pick-media').click()},'통째로 넣기 (사진·동영상)')),
+      h('span',{class:'hint'},'통째로 넣은 사진도 자르기를 누르면 원하는 부분만 남길 수 있어요. PC에서는 Ctrl+V로 붙여넣기. 동영상은 파일당 20MB까지.')),
     fld('링크','link',F.link),
     fld('이름','name',F.name),
     fld('구매처','store',pickChips('store',storeOpts),F.store),
@@ -688,7 +690,7 @@ function openLookEditor(src){
   const strip=h('div',{class:'strip'});
   function drawStrip(){
     strip.replaceChildren(
-      ...picks.map((m,i)=>h('div',{class:'thumb'},h('img',{src:mediaUrl(m),alt:''}),h('button',{type:'button','aria-label':'이 사진 빼기',onclick:()=>{const [x]=picks.splice(i,1);if(x.id&&!x.blob) removed.push(x.id);drawStrip()}},'×'))));
+      ...picks.map((m,i)=>h('div',{class:'thumb'},h('img',{src:mediaUrl(m),alt:''}),h('button',{type:'button',class:'recrop',onclick:()=>openCropper(m.blob||mediaUrl(m),b=>{if(m.id&&!m.blob) removed.push(m.id);picks[i]={blob:b,url:URL.createObjectURL(b)};drawStrip()})},'자르기'),h('button',{type:'button','aria-label':'이 사진 빼기',onclick:()=>{const [x]=picks.splice(i,1);if(x.id&&!x.blob) removed.push(x.id);drawStrip()}},'×'))));
     strip.hidden=!strip.children.length;
   }
   const addBlob=b=>{picks.push({blob:b,url:URL.createObjectURL(b)});drawStrip()};
@@ -710,9 +712,9 @@ function openLookEditor(src){
   const body=h('div',{class:'bd gut'},
     h('div',{class:'fld'},h('span',{class:'lb'},'코디 사진'),strip,
       h('div',{class:'chips'},
-        h('button',{type:'button',class:'btn',onclick:()=>$('#pick-shot').click()},'캡쳐에서 잘라 넣기'),
-        h('button',{type:'button',class:'btn',onclick:()=>$('#pick-media').click()},'사진 추가')),
-      h('span',{class:'hint'},'같은 코디의 다른 컷이나 디테일 컷을 여러 장 넣을 수 있어요. 첫 사진이 대표로 보여요.')),
+        h('button',{type:'button',class:'btn',onclick:()=>$('#pick-shot').click()},'한 이미지에서 여러 개 잘라 넣기'),
+        h('button',{type:'button',class:'btn',onclick:()=>$('#pick-media').click()},'통째로 넣기')),
+      h('span',{class:'hint'},'통째로 넣은 사진도 자르기를 누르면 원하는 부분만 남길 수 있어요. 여러 장을 넣을 수 있고 첫 사진이 대표로 보여요.')),
     tempEditor(temps,'l-t'),
     h('div',{class:'fld'},h('label',{for:'l-memo'},'메모'),memo),
     h('div',{class:'fld'},h('label',{for:'l-tags'},'태그'),tagOpts.length?h('div',{class:'chips'},tagOpts.map(t=>h('button',{type:'button',class:'chip',onclick:()=>{const cur=tags.value.split(',').map(s=>s.trim()).filter(Boolean);if(!cur.includes(t)) tags.value=[...cur,t].join(', ')}},'#'+t))):null,tags),
