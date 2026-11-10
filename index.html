@@ -177,7 +177,7 @@ input[type=number]{background:var(--surface);border:1px solid var(--line);border
 
 <main class="gut"><div class="inner">
   <div class="note" id="note" hidden></div>
-  <div class="bar"><p class="summary" id="summary"></p><label class="btn pick" id="btn-order">주문내역 캡쳐로 추가<input type="file" id="pick-order" accept="image/*"></label></div>
+  <div class="bar"><p class="summary" id="summary"></p></div>
   <div class="grid" id="grid"></div>
   <div id="empty"></div>
   <footer class="tools">
@@ -431,7 +431,7 @@ function renderList(){
         h('li',{},'매장에서 찍은 사진·동영상은 + 버튼으로 바로 추가'))));
   } else em.replaceChildren();
 }
-function render(){renderTabs();renderFilters();renderList();$('#btn-order').hidden=ui.tab==='look'}
+function render(){renderTabs();renderFilters();renderList()}
 
 /* ---------- sheets ---------- */
 function openSheet(title,body,footer){
@@ -639,10 +639,9 @@ function openEditor(src,id){
     statusBtns,
     h('div',{class:'fld'},h('span',{class:'lb'},'사진 · 동영상'),strip,
       h('div',{class:'chips'},
-        filePick('한 이미지에서 여러 개 잘라 넣기',{accept:'image/*'},f=>api.crop(f[0])),
-        filePick('통째로 넣기 (사진·동영상)',{accept:'image/*,video/*',multiple:true},f=>api.addFiles(f))),
+        filePick('사진·동영상 넣기',{accept:'image/*,video/*',multiple:true},f=>api.addFiles(f))),
       pasteBox(b=>api.crop(b)),
-      h('span',{class:'hint'},'통째로 넣은 사진도 자르기를 누르면 원하는 부분만 남길 수 있어요. 버튼을 눌러도 사진 선택 창이 안 열리는 앱에서는 같은 주소를 Chrome에서 열거나, 복사한 사진을 위 칸에 붙여넣어 주세요. 동영상은 파일당 20MB까지.')),
+      h('span',{class:'hint'},'넣은 사진의 자르기를 누르면 원하는 부분만 남길 수 있어요. 한 캡쳐에서 여러 부분이 필요하면 같은 캡쳐를 다시 넣어 각각 잘라 주세요. 버튼을 눌러도 사진 선택 창이 안 열리는 앱에서는 같은 주소를 Chrome에서 열거나, 복사한 사진을 위 칸에 붙여넣어 주세요. 동영상은 파일당 20MB까지.')),
     h('div',{class:'fld'},h('span',{class:'lb'},'이름 · 가격 자동 입력'),h('div',{class:'chips'},infoBtn),
       h('span',{class:'hint'},'상품 페이지 캡쳐를 고른 뒤 이름과 가격이 보이는 부분을 지정하면 읽어서 아래 칸에 채워요. 이 캡쳐는 사진으로 저장되지 않아요.')),
     fld('링크','link',F.link),
@@ -757,10 +756,9 @@ function openLookEditor(src){
   const body=h('div',{class:'bd gut'},
     h('div',{class:'fld'},h('span',{class:'lb'},'코디 사진'),strip,
       h('div',{class:'chips'},
-        filePick('한 이미지에서 여러 개 잘라 넣기',{accept:'image/*'},f=>api.crop(f[0])),
-        filePick('통째로 넣기',{accept:'image/*',multiple:true},f=>api.addFiles(f))),
+        filePick('사진 넣기',{accept:'image/*',multiple:true},f=>api.addFiles(f))),
       pasteBox(b=>api.crop(b)),
-      h('span',{class:'hint'},'통째로 넣은 사진도 자르기를 누르면 원하는 부분만 남길 수 있어요. 여러 장을 넣을 수 있고 첫 사진이 대표로 보여요.')),
+      h('span',{class:'hint'},'넣은 사진의 자르기를 누르면 원하는 부분만 남길 수 있어요. 여러 장을 넣을 수 있고 첫 사진이 대표로 보여요.')),
     tempEditor(temps,'l-t'),
     h('div',{class:'fld'},h('label',{for:'l-memo'},'메모'),memo),
     h('div',{class:'fld'},h('label',{for:'l-tags'},'태그'),tagOpts.length?h('div',{class:'chips'},tagOpts.map(t=>h('button',{type:'button',class:'chip',onclick:()=>{const cur=tags.value.split(',').map(s=>s.trim()).filter(Boolean);if(!cur.includes(t)) tags.value=[...cur,t].join(', ')}},'#'+t))):null,tags),
@@ -795,7 +793,7 @@ function openLookEditor(src){
 }
 
 /* ---------- order import ---------- */
-const ORDER_PROMPT=`첨부 이미지는 쇼핑앱의 주문내역(주문 상세) 화면 캡쳐입니다. 이미지에 실제로 보이는 내용만 읽어서 아래 형식의 JSON 하나만 답하세요. 보이지 않는 값은 추측하지 말고 null로 두세요.
+const ORDER_PROMPT=`첨부 이미지는 상품이 여러 개 보이는 쇼핑 화면 캡쳐입니다(주문내역, 장바구니, 찜 목록, 추천 목록 등). 각 상품을 items에 하나씩 넣으세요. 이미지에 실제로 보이는 내용만 읽어서 아래 형식의 JSON 하나만 답하세요. 보이지 않는 값은 추측하지 말고 null로 두세요.
 {"store": 화면에 쇼핑몰·앱 이름이 보일 때만 그 이름, 아니면 null, "orderDate": "YYYY-MM-DD" 또는 null, "currency": "KRW" 같은 통화 코드, "items": [{"name": 상품명 그대로, "option": 옵션·구성 설명 또는 null, "qty": 수량 숫자, "price": 그 상품 줄에 표시된 실제 판매 금액 숫자(취소선이 그어진 정가가 아닌 쪽), "box": 그 상품 줄에 있는 상품 썸네일 사진의 영역을 [왼쪽, 위, 오른쪽, 아래] 순서로, 이미지 전체 너비와 높이에 대한 0~1 비율 숫자 4개로. 썸네일이 없으면 null}], "finalTotal": 최종 결제금액 숫자 또는 null}
 금액은 쉼표와 통화 기호 없이 숫자로만 적으세요.`;
 function allocate(prices,total){
@@ -808,7 +806,7 @@ async function importOrder(file){
   if(!sample){toast('이 화면에서는 주문내역 읽기를 쓸 수 없어요');return}
   const ctl=new AbortController();
   const stop=()=>{ctl.abort();s.close()};
-  const s=openSheet('주문내역 읽기',h('div',{class:'bd gut'},h('p',{class:'memo'},'캡쳐에서 상품과 금액을 읽는 중이에요. 길면 1분쯤 걸려요.')),
+  const s=openSheet('캡쳐 읽기',h('div',{class:'bd gut'},h('p',{class:'memo'},'캡쳐에서 상품과 금액을 읽는 중이에요. 길면 1분쯤 걸려요.')),
     h('div',{class:'ft gut'},h('span',{class:'grow'}),h('button',{type:'button',class:'btn',onclick:stop},'중단')));
   s.sheet.querySelector('.hd .btn').onclick=stop;
   let r;
@@ -847,12 +845,13 @@ async function reviewOrder(r,file){
   const exOn=h('input',{type:'checkbox',id:'o-ex-on',onchange:()=>{exBox.hidden=!exOn.checked;recalc()}});
   const fin=h('p',{class:'fin'});
   const outs=[];
+  let st=ui.tab==='wish'?'wish':'owned';
   const catOpts=[...new Set([...CATS,...used('category')])],storeOpts=[...new Set([...STORES.map(s=>s[0]),...used('store')])],tagOpts=[...new Set(items.flatMap(i=>i.tags||[]))].slice(0,14);
   function recalc(){
     const act=rows.filter(x=>x.on),t=num(total.value);
     const sum0=act.reduce((a,x)=>a+x.price,0),ex=exOn.checked?(num(exAmt.value)||0):0;
     const base=t!=null?t:sum0,eff=ex?base-ex:t;
-    const adj=allocate(act.map(x=>x.price),eff);
+    const adj=allocate(act.map(x=>x.price),st==='owned'?eff:null);
     rows.forEach(x=>{x.adj=0});act.forEach((x,i)=>{x.adj=adj[i]});
     rows.forEach((x,i)=>{outs[i].textContent=x.on&&x.adj?'→ 반영가 '+money(x.price+x.adj,cur):''});
     const sum=sum0;
@@ -873,12 +872,16 @@ async function reviewOrder(r,file){
   }));
   total.addEventListener('input',recalc);
   const fl=(label,el,opts)=>h('div',{class:'fld'},h('label',{for:el.id},label),opts&&opts.length?h('div',{class:'chips'},opts.map(o=>h('button',{type:'button',class:'chip',onclick:()=>{el.value=o}},o))):null,el);
+  const dateF=fl('구매일',date);
+  const ownBox=h('div',{style:'display:flex;flex-direction:column;gap:16px'},fl('캡쳐에 적힌 최종 결제금액',total),
+    h('label',{class:'chk',for:'o-ex-on'},exOn,'캡쳐 이후 추가 결제 할인이 있었어요 (토스·카드 즉시할인, 적립금 등)'),exBox,fin,info);
+  const stBtns=h('div',{class:'tabs'},[['wish','위시 (살 것)'],['owned','소장 (산 것)']].map(([k,l])=>h('button',{type:'button','data-k':k,onclick:()=>{st=k;syncSt()}},l)));
+  function syncSt(){stBtns.querySelectorAll('button').forEach(b=>b.setAttribute('aria-selected',String(b.dataset.k===st)));ownBox.hidden=dateF.hidden=st!=='owned';recalc()}
   const body=h('div',{class:'bd gut'},
     h('p',{class:'hint',style:'margin:0'},'읽은 내용이 캡쳐와 맞는지 확인하고 틀린 곳은 고쳐 주세요. 상품 사진은 캡쳐에서 자동으로 잘라 넣어요. 잘못 잘렸거나 비어 있으면 사진 칸을 눌러 직접 잘라 주세요. 금액은 줄 전체 금액(수량 포함)이에요.'),
-    fl('구매처',store,storeOpts),fl('구매일',date),
+    stBtns,fl('구매처',store,storeOpts),dateF,
     list,
-    fl('캡쳐에 적힌 최종 결제금액',total),
-    h('label',{class:'chk',for:'o-ex-on'},exOn,'캡쳐 이후 추가 결제 할인이 있었어요 (토스·카드 즉시할인, 적립금 등)'),exBox,fin,info,
+    ownBox,
     fl('카테고리 (전체 공통)',cat,catOpts),
     h('div',{class:'fld'},h('label',{for:'o-tags'},'태그 (전체 공통)'),tagOpts.length?h('div',{class:'chips'},tagOpts.map(t=>h('button',{type:'button',class:'chip',onclick:()=>{const c=tags.value.split(',').map(s=>s.trim()).filter(Boolean);if(!c.includes(t)) tags.value=[...c,t].join(', ')}},'#'+t))):null,tags));
   const save=h('button',{type:'button',class:'btn primary',onclick:async()=>{
@@ -891,19 +894,19 @@ async function reviewOrder(r,file){
       for(const [i,x] of act.entries()){
         let media=[];
         if(x.blob){if(assets){const u=await assets.upload(x.blob,{type:'image/jpeg'});media=[{id:u.id,type:'image'}]}else if(local) media=[{url:x.url,type:'image'}]}
-        await persist(null,{status:'owned',name:x.name.trim(),link:'',store:store.value.trim(),category:x.cat||cat.value.trim(),currency:cur,salePrice:null,
-        boughtPrice:x.price,boughtDate:date.value,qty:x.qty,orderAdj:x.adj||null,orderId,marks:[],tags:tg,memo:exMemo,media,createdAt:now+i,updatedAt:now+i});
+        await persist(null,{status:st,name:x.name.trim(),link:'',store:store.value.trim(),category:x.cat||cat.value.trim(),currency:cur,salePrice:st==='wish'?x.price:null,
+        boughtPrice:st==='owned'?x.price:null,boughtDate:st==='owned'?date.value:'',qty:x.qty,orderAdj:st==='owned'?(x.adj||null):null,orderId:st==='owned'?orderId:null,marks:[],tags:tg,memo:st==='owned'?exMemo:'',media,createdAt:now+i,updatedAt:now+i});
         x.done=true;
       }
-      ui.tab='owned';s.close();render();toast(act.length+'개를 소장에 추가했어요');
-    }catch(e){save.disabled=false;save.textContent='소장에 추가';toast('일부를 추가하지 못했어요 ('+(e&&e.code||'오류')+'). 목록을 확인해 주세요')}
-  }},'소장에 추가');
-  const s=openSheet('주문내역 확인',body,h('div',{class:'ft gut'},h('span',{class:'grow'}),save));
-  recalc();
+      ui.tab=st;s.close();render();toast(act.length+'개를 추가했어요');
+    }catch(e){save.disabled=false;save.textContent='기록 추가';toast('일부를 추가하지 못했어요 ('+(e&&e.code||'오류')+'). 목록을 확인해 주세요')}
+  }},'기록 추가');
+  const s=openSheet('여러 항목 확인',body,h('div',{class:'ft gut'},h('span',{class:'grow'}),save));
+  syncSt();
 }
 
 /* ---------- global wiring ---------- */
-$('#pick-order').addEventListener('change',e=>{const f=e.target.files[0];e.target.value='';if(f) importOrder(f)});
+
 function quickAdd(){
   const el=$('#quick-link');const p=parseShared(el.value);
   if(!p.link&&el.value.trim()){openEditor({name:el.value.trim()});el.value='';return}
@@ -911,7 +914,15 @@ function quickAdd(){
 }
 $('#quick-go').addEventListener('click',quickAdd);
 $('#quick-link').addEventListener('keydown',e=>{if(e.key==='Enter') quickAdd()});
-$('#fab').addEventListener('click',()=>ui.tab==='look'?openLookEditor(null):openEditor(null));
+function openAddMenu(){
+  const body=h('div',{class:'bd gut'},
+    h('div',{class:'fld'},filePick('여러 항목 추가하기',{accept:'image/*'},f=>{s.close();importOrder(f[0])}),
+      h('span',{class:'hint'},'주문내역, 장바구니, 추천 목록처럼 상품이 여러 개 보이는 캡쳐 한 장을 고르면, 상품마다 이름·금액·사진을 읽어 기록을 따로 만들어요. 저장 전에 확인하고 고칠 수 있어요.')),
+    h('div',{class:'fld'},h('button',{type:'button',class:'btn',onclick:()=>{s.close();openEditor(null)}},'한 항목만 추가하기'),
+      h('span',{class:'hint'},'제품 하나를 직접 기록해요. 사진·동영상, 링크, 실측, 기온까지 넣을 수 있어요.')));
+  const s=openSheet('추가하기',body,null);
+}
+$('#fab').addEventListener('click',()=>ui.tab==='look'?openLookEditor(null):openAddMenu());
 document.addEventListener('paste',e=>{
   const files=[...((e.clipboardData&&e.clipboardData.files)||[])].filter(f=>f.type.startsWith('image/'));
   if(!files.length) return;
