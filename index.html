@@ -103,6 +103,9 @@ footer.tools{margin-top:28px;display:flex;flex-wrap:wrap;gap:8px;align-items:cen
 .thumb img,.thumb video{width:100%;height:100%;object-fit:cover;display:block}
 .thumb button{position:absolute;right:4px;top:4px;width:26px;height:26px;border-radius:50%;border:0;background:var(--shade);color:#fff;line-height:1}
 .thumb .vid{position:absolute;left:4px;bottom:4px;background:var(--shade);color:#fff;font-size:10px;border-radius:4px;padding:0 5px}
+.thumb button.recrop{right:auto;top:auto;left:4px;bottom:4px;width:auto;height:auto;border-radius:4px;font-size:11px;padding:3px 8px}
+.loc{font-size:12px;color:var(--muted);overflow-wrap:anywhere}
+.local{display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:18px;font-weight:600;overflow-wrap:anywhere}
 .gallery{display:flex;gap:8px;overflow-x:auto;scroll-snap-type:x mandatory}
 .gallery>*{flex:none;max-width:86%;max-height:62vh;border-radius:var(--r);scroll-snap-align:start;background:var(--sunken);object-fit:contain}
 .kv{display:grid;grid-template-columns:auto 1fr;gap:6px 16px;margin:0}
@@ -188,7 +191,7 @@ let toastT;function toast(msg){document.querySelectorAll('.toast').forEach(t=>t.
 /* ---------- data ---------- */
 let db=null,assets=null,downloads=null,local=false,loaded=false;
 let items=[];
-const ui={tab:'wish',q:'',store:'',cat:'',mark:''};
+const ui={tab:'wish',q:'',store:'',cat:'',place:'',mark:''};
 try{const t=localStorage.getItem('cu-tab');if(t) ui.tab=t}catch(e){}
 
 async function boot(){
@@ -223,8 +226,9 @@ function visible(){
     if(ui.tab!=='all'&&(it.status||'wish')!==ui.tab) return false;
     if(ui.store&&it.store!==ui.store) return false;
     if(ui.cat&&it.category!==ui.cat) return false;
+    if(ui.place&&it.place!==ui.place) return false;
     if(ui.mark&&!(it.marks||[]).includes(ui.mark)) return false;
-    if(q){const hay=[it.name,it.store,it.category,it.memo,(it.tags||[]).join(' ')].join(' ').toLowerCase();if(!hay.includes(q)) return false}
+    if(q){const hay=[it.name,it.localName,it.place,it.store,it.category,it.memo,(it.tags||[]).join(' ')].join(' ').toLowerCase();if(!hay.includes(q)) return false}
     return true;
   }).sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0));
 }
@@ -236,13 +240,13 @@ function renderTabs(){
 }
 let filtersBuilt='';
 function renderFilters(){
-  const stores=used('store'),cats=used('category');
-  const sig=JSON.stringify([stores,cats,ui.mark]);
+  const stores=used('store'),cats=used('category'),places=used('place');
+  const sig=JSON.stringify([stores,cats,places,ui.mark]);
   if(sig===filtersBuilt) return; filtersBuilt=sig;
   const sel=(id,label,opts,key)=>{const s=h('select',{id,'aria-label':label,onchange:e=>{ui[key]=e.target.value;renderList()}},h('option',{value:''},label+' 전체'),opts.map(o=>h('option',{value:o},o)));s.value=opts.includes(ui[key])?ui[key]:'';return s};
   const keep=$('#f-q');
   const q=keep||h('input',{type:'search',id:'f-q',placeholder:'이름·태그·메모 검색','aria-label':'검색',oninput:e=>{ui.q=e.target.value;renderList()}});
-  $('#filters').replaceChildren(q,sel('f-store','구매처',stores,'store'),sel('f-cat','카테고리',cats,'cat'),
+  $('#filters').replaceChildren(q,sel('f-store','구매처',stores,'store'),sel('f-cat','카테고리',cats,'cat'),...(places.length?[sel('f-place','여행지',places,'place')]:[]),
     ...MARKS.map(([k,l])=>h('button',{type:'button',class:'chip','aria-pressed':String(ui.mark===k),onclick:()=>{ui.mark=ui.mark===k?'':k;render()}},l)));
 }
 function cover(it){
@@ -271,7 +275,7 @@ function markLabels(it){return (it.marks||[]).map(k=>(MARKS.find(m=>m[0]===k)||[
 function renderList(){
   const list=visible();
   $('#grid').replaceChildren(...list.map(it=>h('button',{type:'button',class:'card',onclick:()=>openDetail(it.id)},cover(it),
-    h('div',{class:'body'},h('span',{class:'nm'},it.name||'(이름 없음)'),priceEl(it),it.status==='owned'?deltaEl(it):null,
+    h('div',{class:'body'},h('span',{class:'nm'},it.name||it.localName||'(이름 없음)'),it.localName&&it.name?h('span',{class:'loc'},it.localName):null,priceEl(it),it.status==='owned'?deltaEl(it):null,
       markLabels(it).length?h('div',{class:'marks'},markLabels(it).map(l=>h('span',{class:'mark'},l.split('·')[0]))):null))));
   const sum=$('#summary');
   if(!loaded){sum.textContent='기록을 불러오는 중…'}
@@ -308,7 +312,7 @@ function openDetail(id){
   const rows=[];
   const add=(k,v)=>{if(v!=null&&v!=='') rows.push(h('dt',{},k),h('dd',{},v))};
   add('상태',it.status==='owned'?'소장':'위시');
-  add('구매처',it.store); add('카테고리',it.category);
+  add('구매처',it.store); add('카테고리',it.category); add('여행지',it.place);
   add('평소 할인가',it.salePrice!=null?h('span',{class:'price'},money(it.salePrice,it.currency)):null);
   if(it.status==='owned'){ add('구매 가격',it.boughtPrice!=null?[h('span',{class:'price'},money(it.boughtPrice,it.currency)),' ',deltaEl(it)]:null); add('구매일',it.boughtDate); }
   add('표시',markLabels(it).join(', '));
@@ -317,7 +321,8 @@ function openDetail(id){
     (it.media||[]).length?h('div',{class:'gallery'},it.media.map(m=>m.type==='video'
       ?h('video',{src:mediaUrl(m),controls:true,playsinline:true,preload:'metadata'})
       :h('img',{src:mediaUrl(m),alt:it.name||''}))):null,
-    h('p',{class:'title-lg'},it.name||'(이름 없음)'),
+    h('p',{class:'title-lg'},it.name||it.localName||'(이름 없음)'),
+    it.localName?h('div',{class:'local',lang:'und'},h('span',{},it.localName),h('button',{type:'button',class:'chip',onclick:()=>{navigator.clipboard.writeText(it.localName).then(()=>toast('현지 이름을 복사했어요'),()=>toast('복사하지 못했어요. 글자를 길게 눌러 복사해 주세요'))}},'복사')):null,
     link?h('a',{class:'link',href:link,target:'_blank',rel:'noopener noreferrer'},'상품 페이지 열기 ↗'):null,
     h('dl',{class:'kv'},rows),
     it.memo?h('p',{class:'memo'},it.memo):null);
@@ -343,8 +348,9 @@ function toJpeg(src,sx,sy,sw,sh){
 async function shrink(file){
   try{const bmp=await createImageBitmap(file);const b=await toJpeg(bmp,0,0,bmp.width,bmp.height);if(bmp.close)bmp.close();return b||file}catch(e){return file}
 }
-function openCropper(file,onDone){
-  const url=URL.createObjectURL(file);
+function openCropper(file,onDone,more){
+  const isUrl=typeof file==='string';
+  const url=isUrl?file:URL.createObjectURL(file);
   const img=h('img',{src:url,alt:'자를 이미지',draggable:'false'});
   const box=h('div',{class:'crop-box'},['nw','ne','sw','se'].map(c=>h('i',{class:c,'data-c':c})));
   const wrap=h('div',{class:'crop-wrap'},img,box);
@@ -363,20 +369,25 @@ function openCropper(file,onDone){
     apply();
   });
   const end=()=>{drag=null};box.addEventListener('pointerup',end);box.addEventListener('pointercancel',end);
-  const done=async whole=>{
+  const done=async(whole,keep)=>{
     const s=img.naturalWidth/img.clientWidth;
-    const b=whole?await toJpeg(img,0,0,img.naturalWidth,img.naturalHeight):await toJpeg(img,r.x*s,r.y*s,r.w*s,r.h*s);
-    sh.close();URL.revokeObjectURL(url);if(b) onDone(b);
+    let b=null;
+    try{b=whole?await toJpeg(img,0,0,img.naturalWidth,img.naturalHeight):await toJpeg(img,r.x*s,r.y*s,r.w*s,r.h*s)}catch(e){}
+    if(!b){toast('이 이미지는 자를 수 없어요');return}
+    onDone(b);
+    if(keep){toast('넣었어요. 다음 영역을 골라 주세요');return}
+    sh.close();if(!isUrl) URL.revokeObjectURL(url);
   };
   const sh=openSheet('원하는 부분만 자르기',h('div',{class:'crop-stage gut'},wrap),
     h('div',{class:'ft gut'},h('button',{type:'button',class:'btn',onclick:()=>done(true)},'전체 사용'),h('span',{class:'grow'}),
-      h('button',{type:'button',class:'btn primary',onclick:()=>done(false)},'이 영역으로 넣기')));
+      more?h('button',{type:'button',class:'btn',onclick:()=>done(false,true)},'넣고 더 자르기'):null,
+      h('button',{type:'button',class:'btn primary',onclick:()=>done(false)},'이 영역 넣기')));
 }
 
 /* ---------- editor ---------- */
 let activeEditor=null;
 function openEditor(src,id){
-  const d=Object.assign({status:ui.tab==='owned'?'owned':'wish',name:'',link:'',store:'',category:'',currency:'KRW',salePrice:null,boughtPrice:null,boughtDate:'',marks:[],tags:[],memo:'',media:[]},src||{});
+  const d=Object.assign({status:ui.tab==='owned'?'owned':'wish',name:'',localName:'',place:'',link:'',store:'',category:'',currency:'KRW',salePrice:null,boughtPrice:null,boughtDate:'',marks:[],tags:[],memo:'',media:[]},src||{});
   d.media=(d.media||[]).map(m=>Object.assign({},m)); d.marks=[...(d.marks||[])];
   const removed=[];
   const F={};
@@ -394,7 +405,7 @@ function openEditor(src,id){
   function drawStrip(){
     strip.replaceChildren(...d.media.map((m,i)=>h('div',{class:'thumb'},
       m.type==='video'?h('video',{src:mediaUrl(m)+'#t=0.1',preload:'metadata',muted:true,playsinline:true}):h('img',{src:mediaUrl(m),alt:''}),
-      m.type==='video'?h('span',{class:'vid'},'동영상'):null,
+      m.type==='video'?h('span',{class:'vid'},'동영상'):h('button',{type:'button',class:'recrop',onclick:()=>openCropper(m.blob||mediaUrl(m),b=>{if(m.id&&!m.blob) removed.push(m.id);d.media[i]={blob:b,type:'image',url:URL.createObjectURL(b)};drawStrip()})},'자르기'),
       h('button',{type:'button','aria-label':'이 항목 빼기',onclick:()=>{const [x]=d.media.splice(i,1);if(x.id&&!x.blob) removed.push(x.id);drawStrip()}},'×'))));
     strip.hidden=!d.media.length;
   }
@@ -405,7 +416,7 @@ function openEditor(src,id){
       else if(f.type.startsWith('image/')) addBlob(await shrink(f),'image');
     }
   }
-  const api={addFiles,crop:file=>openCropper(file,b=>addBlob(b,'image'))};
+  const api={addFiles,crop:file=>openCropper(file,b=>addBlob(b,'image'),true)};
 
   inp('link',{type:'url',inputmode:'url',placeholder:'https://…'});
   function absorbLink(text){
@@ -417,7 +428,7 @@ function openEditor(src,id){
   }
   F.link.addEventListener('paste',e=>{const t=(e.clipboardData||{}).getData&&e.clipboardData.getData('text');if(t&&absorbLink(t)) e.preventDefault()});
   F.link.addEventListener('change',()=>absorbLink(F.link.value));
-  inp('name',{placeholder:'상품 이름'}); inp('store',{placeholder:'직접 입력'}); inp('category',{placeholder:'직접 입력'});
+  inp('name',{placeholder:'상품 이름 (한국어)'}); inp('localName',{placeholder:'현지 표기 그대로'}); inp('place',{placeholder:'예: 오사카, 방콕'}); inp('store',{placeholder:'직접 입력'}); inp('category',{placeholder:'직접 입력'});
   inp('salePrice',{inputmode:'decimal',placeholder:'자주 보이는 할인 가격',value:d.salePrice??''});
   inp('tags',{placeholder:'쉼표로 구분 · 예: 여름, 린넨',value:(d.tags||[]).join(', ')});
   F.currency=h('select',{id:'e-currency'},Object.keys(CUR).map(c=>h('option',{value:c},c+' '+CUR[c])));F.currency.value=d.currency||'KRW';
@@ -432,9 +443,10 @@ function openEditor(src,id){
       h('div',{class:'chips'},
         h('button',{type:'button',class:'btn',onclick:()=>$('#pick-shot').click()},'캡쳐에서 잘라 넣기'),
         h('button',{type:'button',class:'btn',onclick:()=>$('#pick-media').click()},'사진·동영상 추가')),
-      h('span',{class:'hint'},'PC에서는 캡쳐한 이미지를 Ctrl+V로 바로 붙여넣을 수 있어요. 동영상은 파일당 20MB까지.')),
+      h('span',{class:'hint'},'캡쳐 한 장에서 여러 부분을 잘라 넣을 수 있고, 넣은 사진도 자르기를 눌러 다시 자를 수 있어요. PC에서는 Ctrl+V로 붙여넣기. 동영상은 파일당 20MB까지.')),
     fld('링크','link',F.link),
     fld('이름','name',F.name),
+    h('div',{class:'row'},fld('현지 이름','localName',F.localName),fld('여행지','place',used('place').length?pickChips('place',used('place')):null,F.place)),
     fld('구매처','store',pickChips('store',storeOpts),F.store),
     fld('카테고리','category',pickChips('category',catOpts),F.category),
     h('div',{class:'row'},fld('평소 할인가','salePrice',F.salePrice),fld('통화','currency',F.currency)),
@@ -451,7 +463,7 @@ function openEditor(src,id){
 
   async function onSave(){
     const name=F.name.value.trim();
-    if(!name&&!d.media.length&&!F.link.value.trim()){toast('이름, 링크, 사진 중 하나는 넣어 주세요');return}
+    if(!name&&!F.localName.value.trim()&&!d.media.length&&!F.link.value.trim()){toast('이름, 링크, 사진 중 하나는 넣어 주세요');return}
     save.disabled=true;save.textContent='저장 중…';
     try{
       const media=[];
@@ -462,7 +474,7 @@ function openEditor(src,id){
         else throw {code:'no_assets'};
       }
       const owned=d.status==='owned';
-      const data={status:d.status,name,link:F.link.value.trim(),store:F.store.value.trim(),category:F.category.value.trim(),
+      const data={status:d.status,name,localName:F.localName.value.trim(),place:F.place.value.trim(),link:F.link.value.trim(),store:F.store.value.trim(),category:F.category.value.trim(),
         currency:F.currency.value,salePrice:num(F.salePrice.value),boughtPrice:owned?num(F.boughtPrice.value):null,boughtDate:owned?F.boughtDate.value:'',
         marks:d.marks,tags:[...new Set(F.tags.value.split(/[,#]/).map(t=>t.trim()).filter(Boolean))],memo:F.memo.value.trim(),media,
         createdAt:d.createdAt||Date.now(),updatedAt:Date.now()};
