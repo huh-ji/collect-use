@@ -134,6 +134,8 @@ a.link{color:var(--accent);font-weight:600;overflow-wrap:anywhere}
 .orow .sub input{width:108px}
 .orow .sub input.q{width:60px}
 .orow .out{font-family:var(--mono);color:var(--ink)}
+.meas{display:flex;flex-direction:column;gap:6px}
+.mrow{display:grid;grid-template-columns:1fr 1fr auto;gap:8px}
 .chk{display:flex;gap:8px;align-items:center}
 .chk input{width:20px;height:20px;flex:none}
 .fin{margin:0;font-weight:700;font-size:16px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
@@ -165,6 +167,7 @@ a.link{color:var(--accent);font-weight:600;overflow-wrap:anywhere}
 <input type="file" id="pick-media" accept="image/*,video/mp4,video/webm,video/*" multiple hidden>
 <input type="file" id="pick-shot" accept="image/*" hidden>
 <input type="file" id="pick-order" accept="image/*" hidden>
+<input type="file" id="pick-size" accept="image/*" hidden>
 
 <script>
 const STORES=[['지그재그',['zigzag']],['29CM',['29cm']],['무신사',['musinsa']],['네이버쇼핑',['naver']],['자라',['zara']],
@@ -173,6 +176,12 @@ const CATS=['상의','하의','아우터','원피스','신발','가방','액세�
 const MARKS=[['rebuy','재구매'],['travel','여행·면세'],['tryon','입어봄·온라인 구매 예정']];
 const CUR={KRW:'₩',USD:'$',JPY:'¥',EUR:'€',CNY:'CN¥',THB:'฿',VND:'₫'};
 const MAX_VIDEO=20*1024*1024;
+const FITS=['슬림핏','정핏','세미오버','오버핏'];
+const PARTS=['어깨','가슴','소매','총장','허리','엉덩이','허벅지','밑위','밑단'];
+const hasMeas=it=>(it.measures||[]).length>0;
+const SIZE_PROMPT=`첨부 이미지는 의류 상품 페이지의 실측 사이즈표 캡쳐입니다. 이미지에 실제로 보이는 수치만 읽어서 아래 형식의 JSON 하나만 답하세요. 보이지 않는 값은 추측하거나 채우지 마세요.
+{"sizes": [{"size": 사이즈 이름(예: "M", "FREE", 표에 사이즈 구분이 없으면 null), "measures": [{"k": 부위 이름 그대로(예: "어깨너비"), "v": 수치를 문자열로(예: "46")}]}]}
+표에 사이즈가 여러 개면 모두 넣으세요. 단위 글자는 빼고 숫자만 적으세요.`;
 
 const $=(s,r=document)=>r.querySelector(s);
 function h(tag,attrs,...kids){
@@ -204,7 +213,7 @@ let toastT;function toast(msg){document.querySelectorAll('.toast').forEach(t=>t.
 /* ---------- data ---------- */
 let db=null,assets=null,downloads=null,sample=null,local=false,loaded=false;
 let items=[];
-const ui={tab:'wish',q:'',store:'',cat:'',tag:'',mark:'',adj:true};
+const ui={tab:'wish',q:'',store:'',cat:'',tag:'',mark:'',adj:true,meas:false};
 try{const t=localStorage.getItem('cu-tab');if(t) ui.tab=t;if(localStorage.getItem('cu-adj')==='0') ui.adj=false}catch(e){}
 
 async function boot(){
@@ -240,8 +249,9 @@ function visible(){
     if(ui.store&&it.store!==ui.store) return false;
     if(ui.cat&&it.category!==ui.cat) return false;
     if(ui.tag&&!(it.tags||[]).includes(ui.tag)) return false;
+    if(ui.meas&&!hasMeas(it)) return false;
     if(ui.mark&&!(it.marks||[]).includes(ui.mark)) return false;
-    if(q){const hay=[it.name,it.localName,it.place,it.store,it.category,it.memo,(it.tags||[]).join(' ')].join(' ').toLowerCase();if(!hay.includes(q)) return false}
+    if(q){const hay=[it.name,it.localName,it.place,it.size,it.fit,it.store,it.category,it.memo,(it.tags||[]).join(' ')].join(' ').toLowerCase();if(!hay.includes(q)) return false}
     return true;
   }).sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0));
 }
@@ -254,12 +264,12 @@ function renderTabs(){
 let filtersBuilt='';
 function renderFilters(){
   const stores=used('store'),cats=used('category'),tags=[...new Set(items.flatMap(i=>i.tags||[]))],hasAdj=items.some(i=>i.orderAdj);
-  const sig=JSON.stringify([stores,cats,tags,ui.mark,hasAdj,ui.adj]);
+  const sig=JSON.stringify([stores,cats,tags,ui.mark,hasAdj,ui.adj,ui.meas]);
   if(sig===filtersBuilt) return; filtersBuilt=sig;
   const sel=(id,label,opts,key)=>{const s=h('select',{id,'aria-label':label,onchange:e=>{ui[key]=e.target.value;renderList()}},h('option',{value:''},label+' 전체'),opts.map(o=>h('option',{value:o},o)));s.value=opts.includes(ui[key])?ui[key]:'';return s};
   const keep=$('#f-q');
   const q=keep||h('input',{type:'search',id:'f-q',placeholder:'이름·태그·메모 검색','aria-label':'검색',oninput:e=>{ui.q=e.target.value;renderList()}});
-  $('#filters').replaceChildren(q,sel('f-store','구매처',stores,'store'),sel('f-cat','카테고리',cats,'cat'),...(tags.length?[sel('f-tag','태그',tags,'tag')]:[]),...(hasAdj?[h('button',{type:'button',class:'chip','aria-pressed':String(ui.adj),onclick:()=>{ui.adj=!ui.adj;try{localStorage.setItem('cu-adj',ui.adj?'1':'0')}catch(e){};render()}},'주문 할인 반영')]:[]),
+  $('#filters').replaceChildren(q,sel('f-store','구매처',stores,'store'),sel('f-cat','카테고리',cats,'cat'),...(tags.length?[sel('f-tag','태그',tags,'tag')]:[]),h('button',{type:'button',class:'chip','aria-pressed':String(ui.meas),onclick:()=>{ui.meas=!ui.meas;render()}},'실측 있음'),...(hasAdj?[h('button',{type:'button',class:'chip','aria-pressed':String(ui.adj),onclick:()=>{ui.adj=!ui.adj;try{localStorage.setItem('cu-adj',ui.adj?'1':'0')}catch(e){};render()}},'주문 할인 반영')]:[]),
     ...MARKS.map(([k,l])=>h('button',{type:'button',class:'chip','aria-pressed':String(ui.mark===k),onclick:()=>{ui.mark=ui.mark===k?'':k;render()}},l)));
 }
 function cover(it){
@@ -284,7 +294,7 @@ function renderList(){
   const list=visible();
   $('#grid').replaceChildren(...list.map(it=>h('button',{type:'button',class:'card',onclick:()=>openDetail(it.id)},cover(it),
     h('div',{class:'body'},h('span',{class:'nm'},it.name||it.localName||'(이름 없음)'),priceEl(it),it.qty>1?h('span',{class:'loc'},'수량 '+it.qty+'개'):null,
-      markLabels(it).length?h('div',{class:'marks'},markLabels(it).map(l=>h('span',{class:'mark'},l.split('·')[0]))):null))));
+      (()=>{const ls=[...markLabels(it).map(l=>l.split('·')[0]),...(hasMeas(it)?['실측']:[])];return ls.length?h('div',{class:'marks'},ls.map(l=>h('span',{class:'mark'},l))):null})()))));
   const sum=$('#summary');
   if(!loaded){sum.textContent='기록을 불러오는 중…'}
   else{
@@ -324,6 +334,7 @@ function openDetail(id){
   add('평소 할인가',it.salePrice!=null?h('span',{class:'price'},money(it.salePrice,it.currency)):null);
   if(it.status==='owned'){ add('구매 가격',it.boughtPrice!=null?h('span',{class:'price'},money(it.boughtPrice,it.currency)):null); if(it.orderAdj&&it.boughtPrice!=null) add('주문 할인 반영가',h('span',{class:'price'},money(it.boughtPrice+it.orderAdj,it.currency))); if(it.qty>1) add('수량',it.qty+'개'); add('구매일',it.boughtDate); }
   add('표시',markLabels(it).join(', '));
+  add('사이즈',it.size); add('핏',it.fit);
   add('태그',(it.tags||[]).map(t=>'#'+t).join(' '));
   const body=h('div',{class:'bd gut'},
     (it.media||[]).length?h('div',{class:'gallery'},it.media.map(m=>m.type==='video'
@@ -333,6 +344,7 @@ function openDetail(id){
     it.localName?h('div',{class:'local',lang:'und'},h('span',{},it.localName),h('button',{type:'button',class:'chip',onclick:()=>{navigator.clipboard.writeText(it.localName).then(()=>toast('현지 이름을 복사했어요'),()=>toast('복사하지 못했어요. 글자를 길게 눌러 복사해 주세요'))}},'복사')):null,
     link?h('a',{class:'link',href:link,target:'_blank',rel:'noopener noreferrer'},'상품 페이지 열기 ↗'):null,
     h('dl',{class:'kv'},rows),
+    hasMeas(it)?h('div',{class:'fld'},h('span',{class:'lb'},'실측 (cm)'),h('dl',{class:'kv'},it.measures.flatMap(m=>[h('dt',{},m.k||'-'),h('dd',{class:'price'},m.v)]))):null,
     it.memo?h('p',{class:'memo'},it.memo):null);
   let armed=false;
   const del=h('button',{type:'button',class:'btn danger',onclick:async()=>{
@@ -397,7 +409,7 @@ let activeEditor=null;
 function openEditor(src,id){
   const d=Object.assign({status:ui.tab==='owned'?'owned':'wish',name:'',link:'',store:'',category:'',currency:'KRW',salePrice:null,boughtPrice:null,boughtDate:'',marks:[],tags:[],memo:'',media:[]},src||{});
   d.media=(d.media||[]).map(m=>Object.assign({},m)); d.marks=[...(d.marks||[])];
-  d.tags=[...(d.tags||[])]; if(d.place&&!d.tags.includes(d.place)) d.tags.push(d.place);
+  d.tags=[...(d.tags||[])]; d.measures=(d.measures||[]).map(m=>({k:String(m.k||''),v:String(m.v??'')})); if(d.place&&!d.tags.includes(d.place)) d.tags.push(d.place);
   if(d.localName) d.memo=[d.localName,d.memo].filter(Boolean).join('\n');
   const removed=[];
   const F={};
@@ -427,7 +439,7 @@ function openEditor(src,id){
       else if(f.type.startsWith('image/')) addBlob(await shrink(f),'image');
     }
   }
-  const api={addFiles,crop:file=>openCropper(file,b=>addBlob(b,'image'),true)};
+  const api={addFiles,crop:file=>openCropper(file,b=>addBlob(b,'image'),true),readSize:f=>readSize(f)};
 
   inp('link',{type:'url',inputmode:'url',placeholder:'https://…'});
   function absorbLink(text){
@@ -439,7 +451,33 @@ function openEditor(src,id){
   }
   F.link.addEventListener('paste',e=>{const t=(e.clipboardData||{}).getData&&e.clipboardData.getData('text');if(t&&absorbLink(t)) e.preventDefault()});
   F.link.addEventListener('change',()=>absorbLink(F.link.value));
-  inp('name',{placeholder:'상품 이름'}); inp('store',{placeholder:'직접 입력'}); inp('category',{placeholder:'직접 입력'});
+  inp('name',{placeholder:'상품 이름'});
+  inp('size',{placeholder:'예: M, 95, 27'}); inp('fit',{placeholder:'직접 입력'});
+  const measBox=h('div',{class:'meas'}),sizePick=h('div',{class:'chips'});
+  function drawMeas(){
+    measBox.replaceChildren(...d.measures.map((m,i)=>h('div',{class:'mrow'},
+      h('input',{type:'text',id:'e-mk-'+i,value:m.k,placeholder:'부위','aria-label':'부위',oninput:e=>{m.k=e.target.value}}),
+      h('input',{type:'text',id:'e-mv-'+i,value:m.v,inputmode:'decimal',placeholder:'cm','aria-label':'수치',oninput:e=>{m.v=e.target.value}}),
+      h('button',{type:'button',class:'btn','aria-label':'이 줄 빼기',onclick:()=>{d.measures.splice(i,1);drawMeas()}},'×'))));
+    measBox.hidden=!d.measures.length;
+  }
+  const readBtn=h('button',{type:'button',class:'btn',onclick:()=>$('#pick-size').click()},'사이즈표 캡쳐에서 읽기');
+  async function readSize(file){
+    if(!sample){toast('이 화면에서는 캡쳐 읽기를 쓸 수 없어요. 직접 입력해 주세요');return}
+    readBtn.disabled=true;readBtn.textContent='읽는 중…';
+    try{
+      const r=await sample.json(SIZE_PROMPT,{images:[await shrink(file,2400)]});
+      const sizes=(r&&Array.isArray(r.sizes)?r.sizes:[]).filter(s=>s&&Array.isArray(s.measures)&&s.measures.length);
+      const apply=s=>{d.measures=s.measures.map(m=>({k:String(m&&m.k||'').slice(0,30),v:String(m&&m.v!=null?m.v:'').slice(0,20)}));drawMeas()};
+      if(!sizes.length) toast('실측 수치를 찾지 못했어요. 표가 다 보이게 캡쳐해 주세요');
+      else if(sizes.length===1){apply(sizes[0]);if(sizes[0].size&&!F.size.value) F.size.value=String(sizes[0].size);sizePick.replaceChildren();toast('읽었어요. 수치가 맞는지 확인해 주세요')}
+      else sizePick.replaceChildren(h('span',{class:'hint'},'어느 사이즈를 넣을까요?'),...sizes.map(s=>h('button',{type:'button',class:'chip',onclick:()=>{F.size.value=String(s.size||'');apply(s)}},String(s.size||'?'))));
+    }catch(e){
+      const code=e&&e.code;
+      toast({not_granted:'Claude 사용을 허용해야 캡쳐를 읽을 수 있어요',rate_limited:'사용량 한도에 걸렸어요. 잠시 후 다시 시도해 주세요',image_rejected:'이 이미지는 읽을 수 없어요',invalid_json:'내용을 읽지 못했어요. 다시 시도해 주세요'}[code]||('읽지 못했어요 ('+(code||'오류')+')'));
+    }
+    readBtn.disabled=false;readBtn.textContent='사이즈표 캡쳐에서 읽기';
+  } inp('store',{placeholder:'직접 입력'}); inp('category',{placeholder:'직접 입력'});
   inp('salePrice',{inputmode:'decimal',placeholder:'자주 보이는 할인 가격',value:d.salePrice??''});
   inp('tags',{placeholder:'쉼표로 구분 · 예: 여름, 린넨',value:(d.tags||[]).join(', ')});
   F.currency=h('select',{id:'e-currency'},Object.keys(CUR).map(c=>h('option',{value:c},c+' '+CUR[c])));F.currency.value=d.currency||'KRW';
@@ -461,6 +499,12 @@ function openEditor(src,id){
     fld('카테고리','category',pickChips('category',catOpts),F.category),
     h('div',{class:'row'},fld('평소 할인가','salePrice',F.salePrice),fld('통화','currency',F.currency)),
     ownedRow,
+    h('div',{class:'fld'},h('span',{class:'lb'},'실측 · 핏 (참고할 제품만)'),
+      h('div',{class:'row'},fld('사이즈','size',F.size),fld('핏','fit',pickChips('fit',FITS),F.fit)),
+      measBox,sizePick,
+      h('div',{class:'chips'},PARTS.map(p=>h('button',{type:'button',class:'chip',onclick:()=>{d.measures.push({k:p,v:''});drawMeas();const el=$('#e-mv-'+(d.measures.length-1));if(el) el.focus()}},'+ '+p))),
+      h('div',{class:'chips'},h('button',{type:'button',class:'btn',onclick:()=>{d.measures.push({k:'',v:''});drawMeas()}},'+ 빈 줄'),readBtn),
+      h('span',{class:'hint'},'수치는 cm 기준으로 적어 주세요. 사이즈표에 여러 사이즈가 있으면 읽은 뒤 고를 수 있어요.')),
     h('div',{class:'fld'},h('span',{class:'lb'},'표시'),markBtns),
     fld('태그','tags',tagOpts.length?h('div',{class:'chips'},tagOpts.map(t=>h('button',{type:'button',class:'chip',onclick:()=>{const cur=F.tags.value.split(',').map(s=>s.trim()).filter(Boolean);if(!cur.includes(t)) F.tags.value=[...cur,t].join(', ')}},'#'+t))):null,F.tags),
     fld('메모','memo',F.memo));
@@ -469,7 +513,7 @@ function openEditor(src,id){
   const origClose=s.close;
   const closeAll=()=>{activeEditor=null;origClose()};
   s.sheet.querySelector('.hd .btn').onclick=closeAll;
-  activeEditor=api; syncStatus(); drawStrip();
+  activeEditor=api; syncStatus(); drawStrip(); drawMeas();
 
   async function onSave(){
     const name=F.name.value.trim();
@@ -486,7 +530,8 @@ function openEditor(src,id){
       const owned=d.status==='owned';
       const data={status:d.status,name,link:F.link.value.trim(),store:F.store.value.trim(),category:F.category.value.trim(),
         currency:F.currency.value,salePrice:num(F.salePrice.value),boughtPrice:owned?num(F.boughtPrice.value):null,boughtDate:owned?F.boughtDate.value:'',qty:owned?(num(F.qty.value)||1):1,orderAdj:owned?(d.orderAdj||null):null,orderId:d.orderId||null,
-        marks:d.marks,tags:[...new Set(F.tags.value.split(/[,#]/).map(t=>t.trim()).filter(Boolean))],memo:F.memo.value.trim(),media,
+        marks:d.marks,tags:[...new Set(F.tags.value.split(/[,#]/).map(t=>t.trim()).filter(Boolean))],memo:F.memo.value.trim(),media,size:F.size.value.trim(),fit:F.fit.value.trim(),
+        measures:d.measures.map(m=>({k:m.k.trim(),v:String(m.v).trim()})).filter(m=>m.k||m.v),
         createdAt:d.createdAt||Date.now(),updatedAt:Date.now()};
       await persist(id,data);
       if(assets) for(const rid of removed) assets.delete(rid).catch(()=>{});
@@ -588,6 +633,7 @@ function reviewOrder(r){
 }
 
 /* ---------- global wiring ---------- */
+$('#pick-size').addEventListener('change',e=>{const f=e.target.files[0];e.target.value='';if(f&&activeEditor) activeEditor.readSize(f)});
 $('#btn-order').addEventListener('click',()=>$('#pick-order').click());
 $('#pick-order').addEventListener('change',e=>{const f=e.target.files[0];e.target.value='';if(f) importOrder(f)});
 function quickAdd(){
