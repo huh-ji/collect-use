@@ -127,10 +127,12 @@ a.link{color:var(--accent);font-weight:600;overflow-wrap:anywhere}
 
 .bar{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
 .bar .summary{margin:0}
-.orow{display:grid;grid-template-columns:auto 1fr;gap:6px 10px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
+.othumb{width:46px;height:58px;padding:0;border:1px solid var(--line);border-radius:6px;background:var(--sunken);color:var(--muted);font-size:11px;overflow:hidden}
+.othumb img{width:100%;height:100%;object-fit:cover;display:block}
+.orow{display:grid;grid-template-columns:auto auto 1fr;gap:6px 10px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
 .orow input[type=checkbox]{width:20px;height:20px}
 .orow .nm-in{width:100%}
-.orow .sub{grid-column:2;display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:13px;color:var(--muted)}
+.orow .sub{grid-column:2 / -1;display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:13px;color:var(--muted)}
 .orow .sub input{width:108px}
 .orow .sub input.q{width:60px}
 .orow .out{font-family:var(--mono);color:var(--ink)}
@@ -768,7 +770,7 @@ function openLookEditor(src){
 
 /* ---------- order import ---------- */
 const ORDER_PROMPT=`첨부 이미지는 쇼핑앱의 주문내역(주문 상세) 화면 캡쳐입니다. 이미지에 실제로 보이는 내용만 읽어서 아래 형식의 JSON 하나만 답하세요. 보이지 않는 값은 추측하지 말고 null로 두세요.
-{"store": 화면에 쇼핑몰·앱 이름이 보일 때만 그 이름, 아니면 null, "orderDate": "YYYY-MM-DD" 또는 null, "currency": "KRW" 같은 통화 코드, "items": [{"name": 상품명 그대로, "option": 옵션·구성 설명 또는 null, "qty": 수량 숫자, "price": 그 상품 줄에 표시된 실제 판매 금액 숫자(취소선이 그어진 정가가 아닌 쪽)}], "finalTotal": 최종 결제금액 숫자 또는 null}
+{"store": 화면에 쇼핑몰·앱 이름이 보일 때만 그 이름, 아니면 null, "orderDate": "YYYY-MM-DD" 또는 null, "currency": "KRW" 같은 통화 코드, "items": [{"name": 상품명 그대로, "option": 옵션·구성 설명 또는 null, "qty": 수량 숫자, "price": 그 상품 줄에 표시된 실제 판매 금액 숫자(취소선이 그어진 정가가 아닌 쪽), "box": 그 상품 줄에 있는 상품 썸네일 사진의 영역을 [왼쪽, 위, 오른쪽, 아래] 순서로, 이미지 전체 너비와 높이에 대한 0~1 비율 숫자 4개로. 썸네일이 없으면 null}], "finalTotal": 최종 결제금액 숫자 또는 null}
 금액은 쉼표와 통화 기호 없이 숫자로만 적으세요.`;
 function allocate(prices,total){
   const sum=prices.reduce((a,b)=>a+b,0);
@@ -792,11 +794,21 @@ async function importOrder(file){
   }
   s.close();
   if(!r||!Array.isArray(r.items)||!r.items.length){toast('상품을 찾지 못했어요. 상품 목록이 보이게 캡쳐해 주세요');return}
-  reviewOrder(r);
+  reviewOrder(r,file).catch(()=>toast('확인 화면을 열지 못했어요. 다시 시도해 주세요'));
 }
-function reviewOrder(r){
+async function reviewOrder(r,file){
   const cur=CUR[r.currency]?r.currency:'KRW';
-  const rows=r.items.map(x=>({on:true,adj:0,name:[x&&x.name,x&&x.option].filter(Boolean).join(' · ').slice(0,200),qty:Number(x&&x.qty)||1,price:Number(x&&x.price)||0}));
+  const rows=r.items.map(x=>({on:true,adj:0,name:[x&&x.name,x&&x.option].filter(Boolean).join(' · ').slice(0,200),qty:Number(x&&x.qty)||1,price:Number(x&&x.price)||0,box:x&&x.box,blob:null,url:''}));
+  try{
+    const bmp=await createImageBitmap(file);
+    for(const x of rows){
+      const bx=x.box;if(!Array.isArray(bx)||bx.length!==4||bx.some(v=>typeof v!=='number'||!isFinite(v))) continue;
+      const pad=0.008,l=clamp(Math.min(bx[0],bx[2])-pad,0,1),t=clamp(Math.min(bx[1],bx[3])-pad,0,1),rr=clamp(Math.max(bx[0],bx[2])+pad,0,1),bt=clamp(Math.max(bx[1],bx[3])+pad,0,1);
+      const w=(rr-l)*bmp.width,hh=(bt-t)*bmp.height;if(w<24||hh<24) continue;
+      const b=await toJpeg(bmp,l*bmp.width,t*bmp.height,w,hh);if(b){x.blob=b;x.url=URL.createObjectURL(b)}
+    }
+    if(bmp.close) bmp.close();
+  }catch(e){}
   const store=h('input',{type:'text',id:'o-store',value:typeof r.store==='string'?r.store:'',placeholder:'예: 해피문데이, 카카오톡 선물하기'});
   const date=h('input',{type:'date',id:'o-date',value:/^\d{4}-\d{2}-\d{2}$/.test(r.orderDate||'')?r.orderDate:''});
   const total=h('input',{type:'text',id:'o-total',inputmode:'decimal',value:r.finalTotal==null?'':Number(r.finalTotal)||'',placeholder:'비우면 나누지 않음'});
@@ -822,9 +834,11 @@ function reviewOrder(r){
   }
   const list=h('div',{},rows.map((x,i)=>{
     const out=h('span',{class:'out'});outs.push(out);
+    const th=h('button',{type:'button',class:'othumb','aria-label':'상품 사진 자르기',onclick:()=>openCropper(file,b=>{x.blob=b;x.url=URL.createObjectURL(b);paint()})});
+    const paint=()=>th.replaceChildren(x.url?h('img',{src:x.url,alt:''}):'사진');paint();
     return h('div',{class:'orow'},
       h('input',{type:'checkbox',id:'o-on-'+i,checked:true,'aria-label':'이 상품 추가',onchange:e=>{x.on=e.target.checked;recalc()}}),
-      h('input',{type:'text',class:'nm-in',id:'o-nm-'+i,value:x.name,'aria-label':'상품 이름',oninput:e=>{x.name=e.target.value}}),
+      th,h('input',{type:'text',class:'nm-in',id:'o-nm-'+i,value:x.name,'aria-label':'상품 이름',oninput:e=>{x.name=e.target.value}}),
       h('div',{class:'sub'},
         h('input',{type:'text',class:'q',id:'o-q-'+i,inputmode:'numeric',value:x.qty,'aria-label':'수량',oninput:e=>{x.qty=num(e.target.value)||1}}),'개',
         h('input',{type:'text',id:'o-p-'+i,inputmode:'decimal',value:x.price,'aria-label':'금액',oninput:e=>{x.price=num(e.target.value)||0;recalc()}}),out));
@@ -832,21 +846,26 @@ function reviewOrder(r){
   total.addEventListener('input',recalc);
   const fl=(label,el)=>h('div',{class:'fld'},h('label',{for:el.id},label),el);
   const body=h('div',{class:'bd gut'},
-    h('p',{class:'hint',style:'margin:0'},'읽은 내용이 캡쳐와 맞는지 확인하고 틀린 곳은 고쳐 주세요. 금액은 줄 전체 금액(수량 포함)이에요.'),
+    h('p',{class:'hint',style:'margin:0'},'읽은 내용이 캡쳐와 맞는지 확인하고 틀린 곳은 고쳐 주세요. 상품 사진은 캡쳐에서 자동으로 잘라 넣어요. 잘못 잘렸거나 비어 있으면 사진 칸을 눌러 직접 잘라 주세요. 금액은 줄 전체 금액(수량 포함)이에요.'),
     h('div',{class:'row'},fl('구매처',store),fl('구매일',date)),
     list,
     fl('캡쳐에 적힌 최종 결제금액',total),
     h('label',{class:'chk',for:'o-ex-on'},exOn,'캡쳐 이후 추가 결제 할인이 있었어요 (토스·카드 즉시할인, 적립금 등)'),exBox,fin,info,
     h('div',{class:'row'},fl('카테고리',cat),fl('태그',tags)));
   const save=h('button',{type:'button',class:'btn primary',onclick:async()=>{
-    const act=rows.filter(x=>x.on&&(x.name.trim()||x.price));
+    const act=rows.filter(x=>x.on&&!x.done&&(x.name.trim()||x.price));
     if(!act.length){toast('추가할 상품을 하나 이상 선택해 주세요');return}
     save.disabled=true;save.textContent='추가하는 중…';
     const ex=exOn.checked?(num(exAmt.value)||0):0,exMemo=ex?'추가 결제 할인 '+money(ex,cur)+(exNote.value.trim()?' ('+exNote.value.trim()+')':'')+' · 주문 전체 기준':'';
     const now=Date.now(),orderId='o'+now,tg=[...new Set(tags.value.split(/[,#]/).map(t=>t.trim()).filter(Boolean))];
     try{
-      for(const [i,x] of act.entries()) await persist(null,{status:'owned',name:x.name.trim(),link:'',store:store.value.trim(),category:cat.value.trim(),currency:cur,salePrice:null,
-        boughtPrice:x.price,boughtDate:date.value,qty:x.qty,orderAdj:x.adj||null,orderId,marks:[],tags:tg,memo:exMemo,media:[],createdAt:now+i,updatedAt:now+i});
+      for(const [i,x] of act.entries()){
+        let media=[];
+        if(x.blob){if(assets){const u=await assets.upload(x.blob,{type:'image/jpeg'});media=[{id:u.id,type:'image'}]}else if(local) media=[{url:x.url,type:'image'}]}
+        await persist(null,{status:'owned',name:x.name.trim(),link:'',store:store.value.trim(),category:cat.value.trim(),currency:cur,salePrice:null,
+        boughtPrice:x.price,boughtDate:date.value,qty:x.qty,orderAdj:x.adj||null,orderId,marks:[],tags:tg,memo:exMemo,media,createdAt:now+i,updatedAt:now+i});
+        x.done=true;
+      }
       ui.tab='owned';s.close();render();toast(act.length+'개를 소장에 추가했어요');
     }catch(e){save.disabled=false;save.textContent='소장에 추가';toast('일부를 추가하지 못했어요 ('+(e&&e.code||'오류')+'). 목록을 확인해 주세요')}
   }},'소장에 추가');
