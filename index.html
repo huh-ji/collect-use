@@ -125,6 +125,15 @@ a.link{color:var(--accent);font-weight:600;overflow-wrap:anywhere}
 .crop-box .sw{left:-4px;bottom:-4px;border-right:0;border-top:0;cursor:nesw-resize}
 .crop-box .se{right:-4px;bottom:-4px;border-left:0;border-top:0;cursor:nwse-resize}
 
+.bar{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.bar .summary{margin:0}
+.orow{display:grid;grid-template-columns:auto 1fr;gap:6px 10px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
+.orow input[type=checkbox]{width:20px;height:20px}
+.orow .nm-in{width:100%}
+.orow .sub{grid-column:2;display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:13px;color:var(--muted)}
+.orow .sub input{width:108px}
+.orow .sub input.q{width:60px}
+.orow .out{font-family:var(--mono);color:var(--ink)}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(88px + env(safe-area-inset-bottom,0px));z-index:40;background:var(--ink);color:var(--bg);padding:9px 16px;border-radius:999px;font-size:13px;max-width:calc(100% - 32px);text-align:center}
 </style>
 
@@ -140,7 +149,7 @@ a.link{color:var(--accent);font-weight:600;overflow-wrap:anywhere}
 
 <main class="gut"><div class="inner">
   <div class="note" id="note" hidden></div>
-  <p class="summary" id="summary"></p>
+  <div class="bar"><p class="summary" id="summary"></p><button class="btn" id="btn-order" type="button">주문내역 캡쳐로 추가</button></div>
   <div class="grid" id="grid"></div>
   <div id="empty"></div>
   <footer class="tools">
@@ -152,10 +161,11 @@ a.link{color:var(--accent);font-weight:600;overflow-wrap:anywhere}
 <button class="fab" id="fab" type="button" aria-label="새 기록 추가">+</button>
 <input type="file" id="pick-media" accept="image/*,video/mp4,video/webm,video/*" multiple hidden>
 <input type="file" id="pick-shot" accept="image/*" hidden>
+<input type="file" id="pick-order" accept="image/*" hidden>
 
 <script>
 const STORES=[['지그재그',['zigzag']],['29CM',['29cm']],['무신사',['musinsa']],['네이버쇼핑',['naver']],['자라',['zara']],
-  ['롯데면세점',['lottedfs']],['신라면세점',['shilladfs']],['신세계면세점',['ssgdfs']],['오프라인 매장',[]],['해외 현지',[]]];
+  ['롯데면세점',['lottedfs']],['신라면세점',['shilladfs']],['신세계면세점',['ssgdfs']],['카카오톡 선물하기',['gift.kakao']],['오프라인 매장',[]],['해외 현지',[]]];
 const CATS=['상의','하의','아우터','원피스','신발','가방','액세서리','뷰티','기타'];
 const MARKS=[['rebuy','재구매'],['travel','여행·면세'],['tryon','입어봄·온라인 구매 예정']];
 const CUR={KRW:'₩',USD:'$',JPY:'¥',EUR:'€',CNY:'CN¥',THB:'฿',VND:'₫'};
@@ -189,15 +199,15 @@ function parseShared(text){
 let toastT;function toast(msg){document.querySelectorAll('.toast').forEach(t=>t.remove());const t=h('div',{class:'toast',role:'status'},msg);document.body.append(t);clearTimeout(toastT);toastT=setTimeout(()=>t.remove(),3200)}
 
 /* ---------- data ---------- */
-let db=null,assets=null,downloads=null,local=false,loaded=false;
+let db=null,assets=null,downloads=null,sample=null,local=false,loaded=false;
 let items=[];
-const ui={tab:'wish',q:'',store:'',cat:'',place:'',mark:''};
-try{const t=localStorage.getItem('cu-tab');if(t) ui.tab=t}catch(e){}
+const ui={tab:'wish',q:'',store:'',cat:'',tag:'',mark:'',adj:true};
+try{const t=localStorage.getItem('cu-tab');if(t) ui.tab=t;if(localStorage.getItem('cu-adj')==='0') ui.adj=false}catch(e){}
 
 async function boot(){
   render();
   const c=window.claude;
-  if(c&&c.use){ [db,assets,downloads]=await Promise.all([c.use('db'),c.use('assets'),c.use('downloads')]); }
+  if(c&&c.use){ [db,assets,downloads,sample]=await Promise.all([c.use('db'),c.use('assets'),c.use('downloads'),c.use('sample')]); }
   if(!db){ local=true;loaded=true;showNote('이 화면에서는 저장소에 연결할 수 없어 기록이 저장되지 않습니다. claude.ai에 로그인한 상태로 열어 주세요.');render();return }
   const timer=setTimeout(()=>showNote('기록을 아직 불러오지 못했어요. 연결되면 자동으로 표시됩니다.'),10000);
   db.collection('items').onSnapshot(snap=>{
@@ -209,7 +219,7 @@ async function boot(){
 }
 function showNote(t){const n=$('#note');n.textContent=t;n.hidden=!t}
 async function persist(id,data){
-  if(local){ if(id){const i=items.findIndex(x=>x.id===id);items[i]=Object.assign({id},data)} else items.push(Object.assign({id:'l'+Date.now()},data)); render(); return }
+  if(local){ if(id){const i=items.findIndex(x=>x.id===id);items[i]=Object.assign({id},data)} else items.push(Object.assign({id:'l'+Date.now()+Math.random()},data)); render(); return }
   const ref=id?db.collection('items').doc(id):db.collection('items').doc();
   await ref.set(data);
 }
@@ -226,7 +236,7 @@ function visible(){
     if(ui.tab!=='all'&&(it.status||'wish')!==ui.tab) return false;
     if(ui.store&&it.store!==ui.store) return false;
     if(ui.cat&&it.category!==ui.cat) return false;
-    if(ui.place&&it.place!==ui.place) return false;
+    if(ui.tag&&!(it.tags||[]).includes(ui.tag)) return false;
     if(ui.mark&&!(it.marks||[]).includes(ui.mark)) return false;
     if(q){const hay=[it.name,it.localName,it.place,it.store,it.category,it.memo,(it.tags||[]).join(' ')].join(' ').toLowerCase();if(!hay.includes(q)) return false}
     return true;
@@ -240,13 +250,13 @@ function renderTabs(){
 }
 let filtersBuilt='';
 function renderFilters(){
-  const stores=used('store'),cats=used('category'),places=used('place');
-  const sig=JSON.stringify([stores,cats,places,ui.mark]);
+  const stores=used('store'),cats=used('category'),tags=[...new Set(items.flatMap(i=>i.tags||[]))],hasAdj=items.some(i=>i.orderAdj);
+  const sig=JSON.stringify([stores,cats,tags,ui.mark,hasAdj,ui.adj]);
   if(sig===filtersBuilt) return; filtersBuilt=sig;
   const sel=(id,label,opts,key)=>{const s=h('select',{id,'aria-label':label,onchange:e=>{ui[key]=e.target.value;renderList()}},h('option',{value:''},label+' 전체'),opts.map(o=>h('option',{value:o},o)));s.value=opts.includes(ui[key])?ui[key]:'';return s};
   const keep=$('#f-q');
   const q=keep||h('input',{type:'search',id:'f-q',placeholder:'이름·태그·메모 검색','aria-label':'검색',oninput:e=>{ui.q=e.target.value;renderList()}});
-  $('#filters').replaceChildren(q,sel('f-store','구매처',stores,'store'),sel('f-cat','카테고리',cats,'cat'),...(places.length?[sel('f-place','여행지',places,'place')]:[]),
+  $('#filters').replaceChildren(q,sel('f-store','구매처',stores,'store'),sel('f-cat','카테고리',cats,'cat'),...(tags.length?[sel('f-tag','태그',tags,'tag')]:[]),...(hasAdj?[h('button',{type:'button',class:'chip','aria-pressed':String(ui.adj),onclick:()=>{ui.adj=!ui.adj;try{localStorage.setItem('cu-adj',ui.adj?'1':'0')}catch(e){};render()}},'주문 할인 반영')]:[]),
     ...MARKS.map(([k,l])=>h('button',{type:'button',class:'chip','aria-pressed':String(ui.mark===k),onclick:()=>{ui.mark=ui.mark===k?'':k;render()}},l)));
 }
 function cover(it){
@@ -259,15 +269,10 @@ function cover(it){
   if((it.media||[]).length>1) c.append(h('span',{class:'cnt'},'+'+((it.media.length)-1)));
   return c;
 }
-function deltaEl(it){
-  if(it.boughtPrice==null||it.salePrice==null||!it.salePrice) return null;
-  const p=Math.round((it.salePrice-it.boughtPrice)/it.salePrice*100);
-  if(p===0) return h('span',{class:'delta'},'평소 할인가와 같음');
-  return h('span',{class:'delta '+(p>0?'good':'bad')},'평소 할인가보다 '+Math.abs(p)+'% '+(p>0?'싸게':'비싸게'));
-}
+const paid=it=>it.boughtPrice==null?null:it.boughtPrice+(ui.adj?(it.orderAdj||0):0);
 function priceEl(it){
   const owned=it.status==='owned';
-  const v=owned&&it.boughtPrice!=null?it.boughtPrice:it.salePrice;
+  const v=owned&&it.boughtPrice!=null?paid(it):it.salePrice;
   if(v==null) return null;
   return h('span',{class:'price'},h('small',{},owned&&it.boughtPrice!=null?'구매':'평소'),money(v,it.currency));
 }
@@ -275,12 +280,12 @@ function markLabels(it){return (it.marks||[]).map(k=>(MARKS.find(m=>m[0]===k)||[
 function renderList(){
   const list=visible();
   $('#grid').replaceChildren(...list.map(it=>h('button',{type:'button',class:'card',onclick:()=>openDetail(it.id)},cover(it),
-    h('div',{class:'body'},h('span',{class:'nm'},it.name||it.localName||'(이름 없음)'),it.localName&&it.name?h('span',{class:'loc'},it.localName):null,priceEl(it),it.status==='owned'?deltaEl(it):null,
+    h('div',{class:'body'},h('span',{class:'nm'},it.name||it.localName||'(이름 없음)'),priceEl(it),it.qty>1?h('span',{class:'loc'},'수량 '+it.qty+'개'):null,
       markLabels(it).length?h('div',{class:'marks'},markLabels(it).map(l=>h('span',{class:'mark'},l.split('·')[0]))):null))));
   const sum=$('#summary');
   if(!loaded){sum.textContent='기록을 불러오는 중…'}
   else{
-    const spent=list.filter(i=>i.status==='owned'&&i.boughtPrice!=null&&(i.currency||'KRW')==='KRW').reduce((a,i)=>a+i.boughtPrice,0);
+    const spent=list.filter(i=>i.status==='owned'&&i.boughtPrice!=null&&(i.currency||'KRW')==='KRW').reduce((a,i)=>a+paid(i),0);
     sum.replaceChildren(h('b',{},list.length),'개',...(spent?[' · 구매 합계 ',h('b',{},money(spent,'KRW'))]:[]));
   }
   const em=$('#empty');
@@ -314,7 +319,7 @@ function openDetail(id){
   add('상태',it.status==='owned'?'소장':'위시');
   add('구매처',it.store); add('카테고리',it.category); add('여행지',it.place);
   add('평소 할인가',it.salePrice!=null?h('span',{class:'price'},money(it.salePrice,it.currency)):null);
-  if(it.status==='owned'){ add('구매 가격',it.boughtPrice!=null?[h('span',{class:'price'},money(it.boughtPrice,it.currency)),' ',deltaEl(it)]:null); add('구매일',it.boughtDate); }
+  if(it.status==='owned'){ add('구매 가격',it.boughtPrice!=null?h('span',{class:'price'},money(it.boughtPrice,it.currency)):null); if(it.orderAdj&&it.boughtPrice!=null) add('주문 할인 반영가',h('span',{class:'price'},money(it.boughtPrice+it.orderAdj,it.currency))); if(it.qty>1) add('수량',it.qty+'개'); add('구매일',it.boughtDate); }
   add('표시',markLabels(it).join(', '));
   add('태그',(it.tags||[]).map(t=>'#'+t).join(' '));
   const body=h('div',{class:'bd gut'},
@@ -339,14 +344,14 @@ function openDetail(id){
 }
 
 /* ---------- images ---------- */
-function toJpeg(src,sx,sy,sw,sh){
-  const k=Math.min(1,1600/Math.max(sw,sh));
+function toJpeg(src,sx,sy,sw,sh,max){
+  const k=Math.min(1,(max||1600)/Math.max(sw,sh));
   const c=document.createElement('canvas');c.width=Math.max(1,Math.round(sw*k));c.height=Math.max(1,Math.round(sh*k));
   c.getContext('2d').drawImage(src,sx,sy,sw,sh,0,0,c.width,c.height);
   return new Promise(res=>c.toBlob(res,'image/jpeg',.86));
 }
-async function shrink(file){
-  try{const bmp=await createImageBitmap(file);const b=await toJpeg(bmp,0,0,bmp.width,bmp.height);if(bmp.close)bmp.close();return b||file}catch(e){return file}
+async function shrink(file,max){
+  try{const bmp=await createImageBitmap(file);const b=await toJpeg(bmp,0,0,bmp.width,bmp.height,max);if(bmp.close)bmp.close();return b||file}catch(e){return file}
 }
 function openCropper(file,onDone,more){
   const isUrl=typeof file==='string';
@@ -387,8 +392,10 @@ function openCropper(file,onDone,more){
 /* ---------- editor ---------- */
 let activeEditor=null;
 function openEditor(src,id){
-  const d=Object.assign({status:ui.tab==='owned'?'owned':'wish',name:'',localName:'',place:'',link:'',store:'',category:'',currency:'KRW',salePrice:null,boughtPrice:null,boughtDate:'',marks:[],tags:[],memo:'',media:[]},src||{});
+  const d=Object.assign({status:ui.tab==='owned'?'owned':'wish',name:'',link:'',store:'',category:'',currency:'KRW',salePrice:null,boughtPrice:null,boughtDate:'',marks:[],tags:[],memo:'',media:[]},src||{});
   d.media=(d.media||[]).map(m=>Object.assign({},m)); d.marks=[...(d.marks||[])];
+  d.tags=[...(d.tags||[])]; if(d.place&&!d.tags.includes(d.place)) d.tags.push(d.place);
+  if(d.localName) d.memo=[d.localName,d.memo].filter(Boolean).join('\n');
   const removed=[];
   const F={};
   const inp=(key,attrs)=>(F[key]=h('input',Object.assign({type:'text',id:'e-'+key,value:d[key]??'',autocomplete:'off'},attrs)));
@@ -398,6 +405,7 @@ function openEditor(src,id){
   const statusBtns=h('div',{class:'tabs'},[['wish','위시 (살 것)'],['owned','소장 (산 것)']].map(([k,l])=>h('button',{type:'button','data-k':k,onclick:()=>{d.status=k;syncStatus()}},l)));
   const ownedRow=h('div',{class:'row'},
     fld('구매 가격','boughtPrice',inp('boughtPrice',{inputmode:'decimal',placeholder:'실제로 낸 금액',value:d.boughtPrice??''})),
+    fld('수량','qty',inp('qty',{inputmode:'numeric',value:d.qty||1})),
     fld('구매일','boughtDate',inp('boughtDate',{type:'date'})));
   function syncStatus(){statusBtns.querySelectorAll('button').forEach(b=>b.setAttribute('aria-selected',String(b.dataset.k===d.status)));ownedRow.hidden=d.status!=='owned'}
 
@@ -428,11 +436,11 @@ function openEditor(src,id){
   }
   F.link.addEventListener('paste',e=>{const t=(e.clipboardData||{}).getData&&e.clipboardData.getData('text');if(t&&absorbLink(t)) e.preventDefault()});
   F.link.addEventListener('change',()=>absorbLink(F.link.value));
-  inp('name',{placeholder:'상품 이름 (한국어)'}); inp('localName',{placeholder:'현지 표기 그대로'}); inp('place',{placeholder:'예: 오사카, 방콕'}); inp('store',{placeholder:'직접 입력'}); inp('category',{placeholder:'직접 입력'});
+  inp('name',{placeholder:'상품 이름'}); inp('store',{placeholder:'직접 입력'}); inp('category',{placeholder:'직접 입력'});
   inp('salePrice',{inputmode:'decimal',placeholder:'자주 보이는 할인 가격',value:d.salePrice??''});
   inp('tags',{placeholder:'쉼표로 구분 · 예: 여름, 린넨',value:(d.tags||[]).join(', ')});
   F.currency=h('select',{id:'e-currency'},Object.keys(CUR).map(c=>h('option',{value:c},c+' '+CUR[c])));F.currency.value=d.currency||'KRW';
-  F.memo=h('textarea',{id:'e-memo',placeholder:'사이즈, 색상, 매장 위치, 입어 본 느낌 등',value:d.memo||''});
+  F.memo=h('textarea',{id:'e-memo',placeholder:'사이즈, 색상, 현지 이름, 매장 위치, 입어 본 느낌 등',value:d.memo||''});
   const markBtns=h('div',{class:'chips'},MARKS.map(([k,l])=>{const b=h('button',{type:'button',class:'chip','aria-pressed':String(d.marks.includes(k)),onclick:()=>{const on=!d.marks.includes(k);d.marks=on?[...d.marks,k]:d.marks.filter(x=>x!==k);b.setAttribute('aria-pressed',String(on))}},l);return b}));
   const storeOpts=[...new Set([...STORES.map(s=>s[0]),...used('store')])],catOpts=[...new Set([...CATS,...used('category')])];
   const tagOpts=[...new Set(items.flatMap(i=>i.tags||[]))].slice(0,14);
@@ -446,7 +454,6 @@ function openEditor(src,id){
       h('span',{class:'hint'},'캡쳐 한 장에서 여러 부분을 잘라 넣을 수 있고, 넣은 사진도 자르기를 눌러 다시 자를 수 있어요. PC에서는 Ctrl+V로 붙여넣기. 동영상은 파일당 20MB까지.')),
     fld('링크','link',F.link),
     fld('이름','name',F.name),
-    h('div',{class:'row'},fld('현지 이름','localName',F.localName),fld('여행지','place',used('place').length?pickChips('place',used('place')):null,F.place)),
     fld('구매처','store',pickChips('store',storeOpts),F.store),
     fld('카테고리','category',pickChips('category',catOpts),F.category),
     h('div',{class:'row'},fld('평소 할인가','salePrice',F.salePrice),fld('통화','currency',F.currency)),
@@ -463,7 +470,7 @@ function openEditor(src,id){
 
   async function onSave(){
     const name=F.name.value.trim();
-    if(!name&&!F.localName.value.trim()&&!d.media.length&&!F.link.value.trim()){toast('이름, 링크, 사진 중 하나는 넣어 주세요');return}
+    if(!name&&!d.media.length&&!F.link.value.trim()){toast('이름, 링크, 사진 중 하나는 넣어 주세요');return}
     save.disabled=true;save.textContent='저장 중…';
     try{
       const media=[];
@@ -474,8 +481,8 @@ function openEditor(src,id){
         else throw {code:'no_assets'};
       }
       const owned=d.status==='owned';
-      const data={status:d.status,name,localName:F.localName.value.trim(),place:F.place.value.trim(),link:F.link.value.trim(),store:F.store.value.trim(),category:F.category.value.trim(),
-        currency:F.currency.value,salePrice:num(F.salePrice.value),boughtPrice:owned?num(F.boughtPrice.value):null,boughtDate:owned?F.boughtDate.value:'',
+      const data={status:d.status,name,link:F.link.value.trim(),store:F.store.value.trim(),category:F.category.value.trim(),
+        currency:F.currency.value,salePrice:num(F.salePrice.value),boughtPrice:owned?num(F.boughtPrice.value):null,boughtDate:owned?F.boughtDate.value:'',qty:owned?(num(F.qty.value)||1):1,orderAdj:owned?(d.orderAdj||null):null,orderId:d.orderId||null,
         marks:d.marks,tags:[...new Set(F.tags.value.split(/[,#]/).map(t=>t.trim()).filter(Boolean))],memo:F.memo.value.trim(),media,
         createdAt:d.createdAt||Date.now(),updatedAt:Date.now()};
       await persist(id,data);
@@ -489,7 +496,87 @@ function openEditor(src,id){
   }
 }
 
+/* ---------- order import ---------- */
+const ORDER_PROMPT=`첨부 이미지는 쇼핑앱의 주문내역(주문 상세) 화면 캡쳐입니다. 이미지에 실제로 보이는 내용만 읽어서 아래 형식의 JSON 하나만 답하세요. 보이지 않는 값은 추측하지 말고 null로 두세요.
+{"store": 화면에 쇼핑몰·앱 이름이 보일 때만 그 이름, 아니면 null, "orderDate": "YYYY-MM-DD" 또는 null, "currency": "KRW" 같은 통화 코드, "items": [{"name": 상품명 그대로, "option": 옵션·구성 설명 또는 null, "qty": 수량 숫자, "price": 그 상품 줄에 표시된 실제 판매 금액 숫자(취소선이 그어진 정가가 아닌 쪽)}], "finalTotal": 최종 결제금액 숫자 또는 null}
+금액은 쉼표와 통화 기호 없이 숫자로만 적으세요.`;
+function allocate(prices,total){
+  const sum=prices.reduce((a,b)=>a+b,0);
+  if(total==null||!sum) return prices.map(()=>0);
+  const diff=total-sum;let usedUp=0;
+  return prices.map((p,i)=>{if(i===prices.length-1) return diff-usedUp;const a=Math.round(diff*p/sum);usedUp+=a;return a});
+}
+async function importOrder(file){
+  if(!sample){toast('이 화면에서는 주문내역 읽기를 쓸 수 없어요');return}
+  const ctl=new AbortController();
+  const stop=()=>{ctl.abort();s.close()};
+  const s=openSheet('주문내역 읽기',h('div',{class:'bd gut'},h('p',{class:'memo'},'캡쳐에서 상품과 금액을 읽는 중이에요. 길면 1분쯤 걸려요.')),
+    h('div',{class:'ft gut'},h('span',{class:'grow'}),h('button',{type:'button',class:'btn',onclick:stop},'중단')));
+  s.sheet.querySelector('.hd .btn').onclick=stop;
+  let r;
+  try{r=await sample.json(ORDER_PROMPT,{images:[await shrink(file,2400)],signal:ctl.signal})}
+  catch(e){
+    s.close();const code=e&&e.code;if(code==='cancelled') return;
+    toast({not_granted:'Claude 사용을 허용해야 주문내역을 읽을 수 있어요',rate_limited:'사용량 한도에 걸렸어요. 잠시 후 다시 시도해 주세요',image_rejected:'이 이미지는 읽을 수 없어요. 다른 캡쳐로 시도해 주세요',images_unavailable:'이 화면에서는 이미지를 보낼 수 없어요',invalid_json:'내용을 읽지 못했어요. 다시 시도해 주세요',refused:'이 이미지는 처리할 수 없어요'}[code]||('읽지 못했어요 ('+(code||'오류')+')'));
+    return;
+  }
+  s.close();
+  if(!r||!Array.isArray(r.items)||!r.items.length){toast('상품을 찾지 못했어요. 상품 목록이 보이게 캡쳐해 주세요');return}
+  reviewOrder(r);
+}
+function reviewOrder(r){
+  const cur=CUR[r.currency]?r.currency:'KRW';
+  const rows=r.items.map(x=>({on:true,adj:0,name:[x&&x.name,x&&x.option].filter(Boolean).join(' · ').slice(0,200),qty:Number(x&&x.qty)||1,price:Number(x&&x.price)||0}));
+  const store=h('input',{type:'text',id:'o-store',value:typeof r.store==='string'?r.store:'',placeholder:'예: 해피문데이, 카카오톡 선물하기'});
+  const date=h('input',{type:'date',id:'o-date',value:/^\d{4}-\d{2}-\d{2}$/.test(r.orderDate||'')?r.orderDate:''});
+  const total=h('input',{type:'text',id:'o-total',inputmode:'decimal',value:r.finalTotal==null?'':Number(r.finalTotal)||'',placeholder:'비우면 나누지 않음'});
+  const cat=h('input',{type:'text',id:'o-cat',placeholder:'전체에 같이 넣을 카테고리'});
+  const tags=h('input',{type:'text',id:'o-tags',placeholder:'쉼표로 구분'});
+  const info=h('p',{class:'hint',style:'margin:0'});
+  const outs=[];
+  function recalc(){
+    const act=rows.filter(x=>x.on),t=num(total.value);
+    const adj=allocate(act.map(x=>x.price),t);
+    rows.forEach(x=>{x.adj=0});act.forEach((x,i)=>{x.adj=adj[i]});
+    rows.forEach((x,i)=>{outs[i].textContent=x.on&&x.adj?'→ 반영가 '+money(x.price+x.adj,cur):''});
+    const sum=act.reduce((a,x)=>a+x.price,0);
+    info.textContent='상품 금액 합계 '+money(sum,cur)+(t!=null?' · 차액 '+(t-sum).toLocaleString('ko-KR')+' (주문 전체에 걸린 쿠폰·포인트·배송비). 상품 금액 비율대로 나눠 반영해요.':'');
+  }
+  const list=h('div',{},rows.map((x,i)=>{
+    const out=h('span',{class:'out'});outs.push(out);
+    return h('div',{class:'orow'},
+      h('input',{type:'checkbox',id:'o-on-'+i,checked:true,'aria-label':'이 상품 추가',onchange:e=>{x.on=e.target.checked;recalc()}}),
+      h('input',{type:'text',class:'nm-in',id:'o-nm-'+i,value:x.name,'aria-label':'상품 이름',oninput:e=>{x.name=e.target.value}}),
+      h('div',{class:'sub'},
+        h('input',{type:'text',class:'q',id:'o-q-'+i,inputmode:'numeric',value:x.qty,'aria-label':'수량',oninput:e=>{x.qty=num(e.target.value)||1}}),'개',
+        h('input',{type:'text',id:'o-p-'+i,inputmode:'decimal',value:x.price,'aria-label':'금액',oninput:e=>{x.price=num(e.target.value)||0;recalc()}}),out));
+  }));
+  total.addEventListener('input',recalc);
+  const fl=(label,el)=>h('div',{class:'fld'},h('label',{for:el.id},label),el);
+  const body=h('div',{class:'bd gut'},
+    h('p',{class:'hint',style:'margin:0'},'읽은 내용이 캡쳐와 맞는지 확인하고 틀린 곳은 고쳐 주세요. 금액은 줄 전체 금액(수량 포함)이에요.'),
+    h('div',{class:'row'},fl('구매처',store),fl('구매일',date)),
+    list,
+    fl('최종 결제금액',total),info,
+    h('div',{class:'row'},fl('카테고리',cat),fl('태그',tags)));
+  const save=h('button',{type:'button',class:'btn primary',onclick:async()=>{
+    const act=rows.filter(x=>x.on&&(x.name.trim()||x.price));
+    if(!act.length){toast('추가할 상품을 하나 이상 선택해 주세요');return}
+    save.disabled=true;save.textContent='추가하는 중…';
+    const now=Date.now(),orderId='o'+now,tg=[...new Set(tags.value.split(/[,#]/).map(t=>t.trim()).filter(Boolean))];
+    try{
+      for(const [i,x] of act.entries()) await persist(null,{status:'owned',name:x.name.trim(),link:'',store:store.value.trim(),category:cat.value.trim(),currency:cur,salePrice:null,
+        boughtPrice:x.price,boughtDate:date.value,qty:x.qty,orderAdj:x.adj||null,orderId,marks:[],tags:tg,memo:'',media:[],createdAt:now+i,updatedAt:now+i});
+      ui.tab='owned';s.close();render();toast(act.length+'개를 소장에 추가했어요');
+    }catch(e){save.disabled=false;save.textContent='소장에 추가';toast('일부를 추가하지 못했어요 ('+(e&&e.code||'오류')+'). 목록을 확인해 주세요')}
+  }},'소장에 추가');
+  const s=openSheet('주문내역 확인',body,h('div',{class:'ft gut'},h('span',{class:'grow'}),save));
+  recalc();
+}
+
 /* ---------- global wiring ---------- */
+$('#btn-order').addEventListener('click',()=>$('#pick-order').click());
+$('#pick-order').addEventListener('change',e=>{const f=e.target.files[0];e.target.value='';if(f) importOrder(f)});
 function quickAdd(){
   const el=$('#quick-link');const p=parseShared(el.value);
   if(!p.link&&el.value.trim()){openEditor({name:el.value.trim()});el.value='';return}
