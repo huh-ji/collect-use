@@ -263,7 +263,7 @@ const norm=it=>{if((it.marks||[]).length) it.tags=[...new Set([...(it.tags||[]),
   if(it.orderAdj&&it.boughtPrice!=null){it.boughtPrice+=it.orderAdj;it.extraDisc=(it.extraDisc||0)+Math.max(0,-it.orderAdj);it.orderAdj=null}
   return it};
 const INFO_PROMPT=`첨부 이미지는 쇼핑몰 상품 페이지를 캡쳐한 것(또는 그 일부)입니다. 이미지에 실제로 보이는 글자만 읽어서 아래 형식의 JSON 하나만 답하세요. 보이지 않는 값은 추측하지 말고 null로 두세요.
-{"brand": 브랜드명 또는 null, "name": 상품명 그대로 또는 null, "price": 지금 살 수 있는 판매 금액 숫자(할인가가 있으면 할인가, 취소선이 그어진 정가가 아닌 쪽) 또는 null, "currency": "KRW" 같은 통화 코드, "store": 화면에 쇼핑몰·앱 이름이 보일 때만 그 이름, 아니면 null}
+{"brand": 브랜드명 또는 null, "name": 브랜드명을 뺀 상품명 또는 null(상품 사진만 있고 상품명 글자가 없으면 null), "price": 지금 살 수 있는 판매 금액 숫자(할인가가 있으면 할인가, 취소선이 그어진 정가가 아닌 쪽) 또는 null, "currency": "KRW" 같은 통화 코드, "store": 화면에 쇼핑몰·앱 이름이 보일 때만 그 이름, 아니면 null}
 금액은 쉼표와 통화 기호 없이 숫자로만 적으세요.`;
 const SIZE_PROMPT=`첨부 이미지는 의류 상품 페이지의 실측 사이즈표 캡쳐입니다. 이미지에 실제로 보이는 수치만 읽어서 아래 형식의 JSON 하나만 답하세요. 보이지 않는 값은 추측하거나 채우지 마세요.
 {"sizes": [{"size": 사이즈 이름(예: "M", "FREE", 표에 사이즈 구분이 없으면 null), "measures": [{"k": 부위 이름 그대로(예: "어깨너비"), "v": 수치를 문자열로(예: "46")}]}]}
@@ -536,7 +536,7 @@ function openCropper(file,onDone,more,lab){
 }
 
 /* ---------- editor ---------- */
-let activeEditor=null;
+let activeEditor=null,autoReadOff=false;
 function openEditor(src,id){
   const d=Object.assign({status:ui.tab==='owned'?'owned':'wish',name:'',link:'',store:'',category:'',currency:'KRW',salePrice:null,boughtPrice:null,boughtDate:'',marks:[],tags:[],memo:'',media:[]},src||{});
   d.media=(d.media||[]).map(m=>Object.assign({},m)); d.marks=[...(d.marks||[])];
@@ -576,12 +576,13 @@ function openEditor(src,id){
   }
   const addBlob=(blob,type)=>{d.media.push({blob,type,url:URL.createObjectURL(blob)});drawStrip()};
   async function addFiles(files){
+    let asked=false;
     for(const f of files){
       if(f.type.startsWith('video/')){ if(f.size>MAX_VIDEO){toast('동영상은 파일당 20MB까지 넣을 수 있어요 ('+f.name+')');continue} addBlob(f,'video') }
-      else if(f.type.startsWith('image/')) addBlob(await shrink(f),'image');
+      else if(f.type.startsWith('image/')){const b=await shrink(f);addBlob(b,'image');if(!asked&&!F.name.value.trim()){asked=true;readInfo(b)}}
     }
   }
-  const api={addFiles,crop:file=>openCropper(file,b=>addBlob(b,'image')),readSize:f=>readSize(f)};
+  const api={addFiles,crop:file=>openCropper(file,b=>{addBlob(b,'image');if(!F.name.value.trim()) readInfo(b)}),readSize:f=>readSize(f)};
 
   inp('link',{type:'url',inputmode:'url',placeholder:'https://…'});
   function absorbLink(text){
@@ -624,24 +625,26 @@ function openEditor(src,id){
       toast({not_granted:'Claude 사용을 허용해야 캡쳐를 읽을 수 있어요',rate_limited:'사용량 한도에 걸렸어요. 잠시 후 다시 시도해 주세요',image_rejected:'이 이미지는 읽을 수 없어요',invalid_json:'내용을 읽지 못했어요. 다시 시도해 주세요'}[code]||('읽지 못했어요 ('+(code||'오류')+')'));
     }
     readLbl.textContent='사이즈표 캡쳐에서 읽기';
-  } const infoBtn=filePick('캡쳐에서 이름·가격 읽기',{accept:'image/*'},f=>openCropper(f[0],b=>readInfo(b),false,{title:'읽을 부분 고르기',whole:'전체 읽기',part:'이 부분 읽기'})),infoLbl=infoBtn.firstChild;
+  } const infoSt=h('span',{class:'hint',role:'status'});
   async function readInfo(blob){
-    if(!sample){toast('이 화면에서는 캡쳐 읽기를 쓸 수 없어요. 직접 입력해 주세요');return}
-    infoLbl.textContent='읽는 중…';
+    if(!sample||autoReadOff) return;
+    infoSt.textContent='사진에서 이름·가격을 읽는 중…';
     try{
       const r=await sample.json(INFO_PROMPT,{images:[blob]})||{};
       const got=[];
-      if(r.name){const nm=String(r.name).trim(),br=r.brand?String(r.brand).trim():'';F.name.value=((br&&!nm.includes(br)?br+' ':'')+nm).slice(0,150);got.push('이름')}
+      if(r.name&&!F.name.value.trim()){let nm=String(r.name).trim();const br=r.brand?String(r.brand).trim():'';if(br&&!nm.startsWith('[')){if(nm.startsWith(br)) nm=nm.slice(br.length).trim();nm='['+br+'] '+nm}F.name.value=nm.slice(0,150);got.push('이름')}
       const pr=Number(r.price);
-      if(isFinite(pr)&&pr>0){const own=d.status==='owned';(own?F.boughtPrice:F.salePrice).value=pr;got.push(own?'구매 가격':'평소 할인가')}
+      const own=d.status==='owned',tgt=own?F.boughtPrice:F.salePrice;
+      if(isFinite(pr)&&pr>0&&!tgt.value.trim()){tgt.value=pr;syncEx();got.push(own?'구매 가격':'평소 할인가')}
       if(CUR[r.currency]) F.currency.value=r.currency;
       if(r.store&&!F.store.value){F.store.value=String(r.store).slice(0,40);got.push('구매처')}
-      toast(got.length?got.join(' · ')+' 칸을 채웠어요. 맞는지 확인해 주세요':'이름이나 가격을 찾지 못했어요. 글자가 보이는 부분을 골라 주세요');
+      if(got.length) toast(got.join(' · ')+' 칸을 사진에서 읽어 채웠어요. 맞는지 확인해 주세요');
     }catch(e){
       const code=e&&e.code;
-      toast({not_granted:'Claude 사용을 허용해야 캡쳐를 읽을 수 있어요',rate_limited:'사용량 한도에 걸렸어요. 잠시 후 다시 시도해 주세요',image_rejected:'이 이미지는 읽을 수 없어요',invalid_json:'내용을 읽지 못했어요. 다시 시도해 주세요'}[code]||('읽지 못했어요 ('+(code||'오류')+')'));
+      toast({not_granted:'Claude 사용을 허용해야 캡쳐를 읽을 수 있어요',rate_limited:'사용량 한도에 걸렸어요. 잠시 후 다시 시도해 주세요',image_rejected:'이 이미지는 읽을 수 없어요',invalid_json:'내용을 읽지 못했어요. 다시 시도해 주세요'}[code]||('이름·가격을 읽지 못했어요 ('+(code||'오류')+')'));
+      if(code==='not_granted'||code==='sampling_disabled') autoReadOff=true;
     }
-    infoLbl.textContent='캡쳐에서 이름·가격 읽기';
+    infoSt.textContent='';
   }
   inp('store',{placeholder:'직접 입력'}); inp('category',{placeholder:'직접 입력'});
   F.category.addEventListener('change',()=>{d.measures=arrangeMeas(d.measures.filter(m=>m.v||(!m.std&&m.k)),partsFor(F.category.value));drawMeas()});
@@ -660,9 +663,7 @@ function openEditor(src,id){
         filePick('사진 넣기',{accept:'image/*',multiple:true},f=>api.addFiles(f)),
         filePick('동영상 넣기',{accept:'video/*',multiple:true},f=>api.addFiles(f))),
       pasteBox(b=>api.crop(b)),
-      h('span',{class:'hint'},'넣은 사진의 자르기를 누르면 원하는 부분만 남길 수 있어요. 한 캡쳐에서 여러 부분이 필요하면 같은 캡쳐를 다시 넣어 각각 잘라 주세요. 버튼을 눌러도 사진 선택 창이 안 열리는 앱에서는 같은 주소를 Chrome에서 열거나, 복사한 사진을 위 칸에 붙여넣어 주세요. 동영상은 파일당 20MB까지.')),
-    h('div',{class:'fld'},h('span',{class:'lb'},'이름 · 가격 자동 입력'),h('div',{class:'chips'},infoBtn),
-      h('span',{class:'hint'},'상품 페이지 캡쳐를 고른 뒤 이름과 가격이 보이는 부분을 지정하면 읽어서 아래 칸에 채워요. 이 캡쳐는 사진으로 저장되지 않아요.')),
+      infoSt,h('span',{class:'hint'},'이름 칸이 비어 있으면 넣은 사진에서 이름과 가격을 읽어 빈 칸에 채워요. 넣은 사진의 자르기를 누르면 원하는 부분만 남길 수 있어요. 한 캡쳐에서 여러 부분이 필요하면 같은 캡쳐를 다시 넣어 각각 잘라 주세요. 버튼을 눌러도 사진 선택 창이 안 열리는 앱에서는 같은 주소를 Chrome에서 열거나, 복사한 사진을 위 칸에 붙여넣어 주세요. 동영상은 파일당 20MB까지.')),
     fld('링크','link',F.link),
     fld('이름','name',F.name),
     fld('구매처','store',pickChips('store',storeOpts),F.store),
