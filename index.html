@@ -136,6 +136,8 @@ a.link{color:var(--accent);font-weight:600;overflow-wrap:anywhere}
 .orow .out{font-family:var(--mono);color:var(--ink)}
 .meas{display:flex;flex-direction:column;gap:6px}
 .mrow{display:grid;grid-template-columns:1fr 1fr auto;gap:8px}
+.msub{grid-column:1/-1;display:flex;gap:8px;align-items:center}
+.msub select{width:auto}
 .chk{display:flex;gap:8px;align-items:center}
 .chk input{width:20px;height:20px;flex:none}
 .fin{margin:0;font-weight:700;font-size:16px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
@@ -177,10 +179,22 @@ const MARKS=[['rebuy','재구매'],['travel','여행·면세'],['tryon','입어�
 const CUR={KRW:'₩',USD:'$',JPY:'¥',EUR:'€',CNY:'CN¥',THB:'฿',VND:'₫'};
 const MAX_VIDEO=20*1024*1024;
 const FITS=['슬림핏','정핏','세미오버','오버핏'];
-const PARTS=['어깨','가슴','소매','총장','허리','엉덩이','허벅지','밑위','밑단'];
+const PARTS=['어깨','가슴','소매','소매통','총장','허리','엉덩이','허벅지','밑위','밑단'];
+const GIRTH=['가슴','허리','엉덩이','허벅지','밑단','소매통'];
+function canonPart(raw){
+  const s=String(raw||'').replace(/\s+/g,'');
+  const t=/둘레/.test(s)?'round':'flat';
+  const rules=[[/어깨/,'어깨'],[/소매통|팔통/,'소매통'],[/소매|팔길이/,'소매'],[/가슴|품/,'가슴'],[/허리/,'허리'],[/엉덩이|힙/,'엉덩이'],[/허벅지/,'허벅지'],[/밑위/,'밑위'],[/밑단/,'밑단'],[/총장|기장|전체길이/,'총장']];
+  for(const [re,k] of rules) if(re.test(s)) return {k,t};
+  return {k:String(raw||'').trim(),t};
+}
+const fmtN=n=>String(Math.round(n*10)/10);
+function pair(m){const n=parseFloat(m.v);if(!GIRTH.includes(m.k)||!isFinite(n)) return null;return m.t==='round'?{flat:n/2,round:n}:{flat:n,round:n*2}}
+const measText=m=>{const p=pair(m);return p?'단면 '+fmtN(p.flat)+' (둘레 '+fmtN(p.round)+')':m.v};
+const normMeas=m=>{const c=canonPart(m.k);return {k:c.k,v:String(m.v??''),t:m.t||c.t}};
 const hasMeas=it=>(it.measures||[]).length>0;
 const MARK_TAG={rebuy:'재구매',travel:'여행',tryon:'입어봄'};
-const norm=it=>{if((it.marks||[]).length) it.tags=[...new Set([...(it.tags||[]),...it.marks.map(k=>MARK_TAG[k]).filter(Boolean)])];return it};
+const norm=it=>{if((it.marks||[]).length) it.tags=[...new Set([...(it.tags||[]),...it.marks.map(k=>MARK_TAG[k]).filter(Boolean)])];if(it.measures) it.measures=it.measures.map(normMeas);return it};
 const SIZE_PROMPT=`첨부 이미지는 의류 상품 페이지의 실측 사이즈표 캡쳐입니다. 이미지에 실제로 보이는 수치만 읽어서 아래 형식의 JSON 하나만 답하세요. 보이지 않는 값은 추측하거나 채우지 마세요.
 {"sizes": [{"size": 사이즈 이름(예: "M", "FREE", 표에 사이즈 구분이 없으면 null), "measures": [{"k": 부위 이름 그대로(예: "어깨너비"), "v": 수치를 문자열로(예: "46")}]}]}
 표에 사이즈가 여러 개면 모두 넣으세요. 단위 글자는 빼고 숫자만 적으세요.`;
@@ -346,7 +360,7 @@ function openDetail(id){
     it.localName?h('div',{class:'local',lang:'und'},h('span',{},it.localName),h('button',{type:'button',class:'chip',onclick:()=>{navigator.clipboard.writeText(it.localName).then(()=>toast('현지 이름을 복사했어요'),()=>toast('복사하지 못했어요. 글자를 길게 눌러 복사해 주세요'))}},'복사')):null,
     link?h('a',{class:'link',href:link,target:'_blank',rel:'noopener noreferrer'},'상품 페이지 열기 ↗'):null,
     h('dl',{class:'kv'},rows),
-    hasMeas(it)?h('div',{class:'fld'},h('span',{class:'lb'},'실측 (cm)'),h('dl',{class:'kv'},it.measures.flatMap(m=>[h('dt',{},m.k||'-'),h('dd',{class:'price'},m.v)]))):null,
+    hasMeas(it)?h('div',{class:'fld'},h('span',{class:'lb'},'실측 (cm)'),h('dl',{class:'kv'},it.measures.flatMap(m=>[h('dt',{},m.k||'-'),h('dd',{class:'price'},measText(m))]))):null,
     it.memo?h('p',{class:'memo'},it.memo):null);
   let armed=false;
   const del=h('button',{type:'button',class:'btn danger',onclick:async()=>{
@@ -411,7 +425,7 @@ let activeEditor=null;
 function openEditor(src,id){
   const d=Object.assign({status:ui.tab==='owned'?'owned':'wish',name:'',link:'',store:'',category:'',currency:'KRW',salePrice:null,boughtPrice:null,boughtDate:'',marks:[],tags:[],memo:'',media:[]},src||{});
   d.media=(d.media||[]).map(m=>Object.assign({},m)); d.marks=[...(d.marks||[])];
-  d.tags=[...(d.tags||[])]; d.measures=(d.measures||[]).map(m=>({k:String(m.k||''),v:String(m.v??'')})); if(d.place&&!d.tags.includes(d.place)) d.tags.push(d.place);
+  d.tags=[...(d.tags||[])]; d.measures=(d.measures||[]).map(normMeas); if(d.place&&!d.tags.includes(d.place)) d.tags.push(d.place);
   if(d.localName) d.memo=[d.localName,d.memo].filter(Boolean).join('\n');
   const removed=[];
   const F={};
@@ -457,10 +471,15 @@ function openEditor(src,id){
   inp('size',{placeholder:'예: M, 95, 27'}); inp('fit',{placeholder:'직접 입력'});
   const measBox=h('div',{class:'meas'}),sizePick=h('div',{class:'chips'});
   function drawMeas(){
-    measBox.replaceChildren(...d.measures.map((m,i)=>h('div',{class:'mrow'},
-      h('input',{type:'text',id:'e-mk-'+i,value:m.k,placeholder:'부위','aria-label':'부위',oninput:e=>{m.k=e.target.value}}),
-      h('input',{type:'text',id:'e-mv-'+i,value:m.v,inputmode:'decimal',placeholder:'cm','aria-label':'수치',oninput:e=>{m.v=e.target.value}}),
-      h('button',{type:'button',class:'btn','aria-label':'이 줄 빼기',onclick:()=>{d.measures.splice(i,1);drawMeas()}},'×'))));
+    measBox.replaceChildren(...d.measures.map((m,i)=>{
+      const calc=h('span',{class:'hint'});
+      const upd=()=>{const p=pair(m);calc.textContent=p?(m.t==='round'?'→ 단면 '+fmtN(p.flat):'→ 둘레 '+fmtN(p.round)):''};upd();
+      const typ=h('select',{id:'e-mt-'+i,'aria-label':'적은 수치가 단면인지 둘레인지',onchange:e=>{m.t=e.target.value;upd()}},h('option',{value:'flat'},'단면'),h('option',{value:'round'},'둘레'));typ.value=m.t||'flat';
+      const sub=h('div',{class:'msub'},typ,calc);sub.hidden=!GIRTH.includes(m.k);
+      return h('div',{class:'mrow'},
+      h('input',{type:'text',id:'e-mk-'+i,value:m.k,placeholder:'부위','aria-label':'부위',oninput:e=>{m.k=e.target.value},onchange:e=>{const c=canonPart(e.target.value);if(/둘레|단면/.test(e.target.value)){m.t=c.t;typ.value=c.t}m.k=c.k;e.target.value=c.k;sub.hidden=!GIRTH.includes(m.k);upd()}}),
+      h('input',{type:'text',id:'e-mv-'+i,value:m.v,inputmode:'decimal',placeholder:'cm','aria-label':'수치',oninput:e=>{m.v=e.target.value;upd()}}),
+      h('button',{type:'button',class:'btn','aria-label':'이 줄 빼기',onclick:()=>{d.measures.splice(i,1);drawMeas()}},'×'),sub)}));
     measBox.hidden=!d.measures.length;
   }
   const readBtn=h('button',{type:'button',class:'btn',onclick:()=>$('#pick-size').click()},'사이즈표 캡쳐에서 읽기');
@@ -470,7 +489,7 @@ function openEditor(src,id){
     try{
       const r=await sample.json(SIZE_PROMPT,{images:[await shrink(file,2400)]});
       const sizes=(r&&Array.isArray(r.sizes)?r.sizes:[]).filter(s=>s&&Array.isArray(s.measures)&&s.measures.length);
-      const apply=s=>{d.measures=s.measures.map(m=>({k:String(m&&m.k||'').slice(0,30),v:String(m&&m.v!=null?m.v:'').slice(0,20)}));drawMeas()};
+      const apply=s=>{d.measures=s.measures.map(m=>normMeas({k:String(m&&m.k||'').slice(0,30),v:String(m&&m.v!=null?m.v:'').slice(0,20)}));drawMeas()};
       if(!sizes.length) toast('실측 수치를 찾지 못했어요. 표가 다 보이게 캡쳐해 주세요');
       else if(sizes.length===1){apply(sizes[0]);if(sizes[0].size&&!F.size.value) F.size.value=String(sizes[0].size);sizePick.replaceChildren();toast('읽었어요. 수치가 맞는지 확인해 주세요')}
       else sizePick.replaceChildren(h('span',{class:'hint'},'어느 사이즈를 넣을까요?'),...sizes.map(s=>h('button',{type:'button',class:'chip',onclick:()=>{F.size.value=String(s.size||'');apply(s)}},String(s.size||'?'))));
@@ -506,7 +525,7 @@ function openEditor(src,id){
       measBox,sizePick,
       h('div',{class:'chips'},PARTS.map(p=>h('button',{type:'button',class:'chip',onclick:()=>{d.measures.push({k:p,v:''});drawMeas();const el=$('#e-mv-'+(d.measures.length-1));if(el) el.focus()}},'+ '+p))),
       h('div',{class:'chips'},h('button',{type:'button',class:'btn',onclick:()=>{d.measures.push({k:'',v:''});drawMeas()}},'+ 빈 줄'),readBtn),
-      h('span',{class:'hint'},'수치는 cm 기준으로 적어 주세요. 사이즈표에 여러 사이즈가 있으면 읽은 뒤 고를 수 있어요.')),
+      h('span',{class:'hint'},'수치는 cm 기준. 부위 이름은 어깨너비→어깨처럼 같은 이름으로 맞춰지고, 가슴·허리·엉덩이·허벅지·밑단·소매통은 단면과 둘레를 함께 보여 줘요. 사이즈표에 여러 사이즈가 있으면 읽은 뒤 고를 수 있어요.')),
     fld('태그','tags',tagOpts.length?h('div',{class:'chips'},tagOpts.map(t=>h('button',{type:'button',class:'chip',onclick:()=>{const cur=F.tags.value.split(',').map(s=>s.trim()).filter(Boolean);if(!cur.includes(t)) F.tags.value=[...cur,t].join(', ')}},'#'+t))):null,F.tags),
     fld('메모','memo',F.memo));
   const save=h('button',{type:'button',class:'btn primary',onclick:onSave},'저장');
@@ -532,7 +551,7 @@ function openEditor(src,id){
       const data={status:d.status,name,link:F.link.value.trim(),store:F.store.value.trim(),category:F.category.value.trim(),
         currency:F.currency.value,salePrice:num(F.salePrice.value),boughtPrice:owned?num(F.boughtPrice.value):null,boughtDate:owned?F.boughtDate.value:'',qty:owned?(num(F.qty.value)||1):1,orderAdj:owned?(d.orderAdj||null):null,orderId:d.orderId||null,
         marks:[],tags:[...new Set(F.tags.value.split(/[,#]/).map(t=>t.trim()).filter(Boolean))],memo:F.memo.value.trim(),media,size:F.size.value.trim(),fit:F.fit.value.trim(),
-        measures:d.measures.map(m=>({k:m.k.trim(),v:String(m.v).trim()})).filter(m=>m.k||m.v),
+        measures:d.measures.map(m=>({k:canonPart(m.k).k,v:String(m.v).trim(),t:m.t||'flat'})).filter(m=>m.k||m.v),
         createdAt:d.createdAt||Date.now(),updatedAt:Date.now()};
       await persist(id,data);
       if(assets) for(const rid of removed) assets.delete(rid).catch(()=>{});
