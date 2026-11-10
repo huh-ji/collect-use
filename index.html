@@ -157,6 +157,9 @@ input[type=number]{background:var(--surface);border:1px solid var(--line);border
 .pick:focus-within{outline:2px solid var(--accent);outline-offset:2px}
 .paste{border:1px dashed var(--line);border-radius:8px;padding:10px 12px;min-height:42px;max-height:64px;overflow:hidden;background:var(--surface);font-size:13px}
 .paste:empty::before{content:attr(data-ph);color:var(--muted)}
+.panel>.bd>*{flex-shrink:0}
+.xrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.xrow .chip{min-height:26px;padding:2px 10px;font-size:12px}
 .msub{grid-column:1/-1;display:flex;gap:8px;align-items:center}
 .msub select{width:auto}
 .chk{display:flex;gap:8px;align-items:center}
@@ -256,7 +259,9 @@ function tempEditor(list,prefix){
     h('span',{class:'hint'},'입었던 날 활동 시간대의 기온 범위를 적어 두면 나중에 오늘 기온으로 찾을 수 있어요. 입은 날마다 따로 추가하세요.'));
 }
 const MARK_TAG={rebuy:'재구매',travel:'여행',tryon:'입어봄'};
-const norm=it=>{if((it.marks||[]).length) it.tags=[...new Set([...(it.tags||[]),...it.marks.map(k=>MARK_TAG[k]).filter(Boolean)])];if(it.measures) it.measures=it.measures.map(normMeas);return it};
+const norm=it=>{if((it.marks||[]).length) it.tags=[...new Set([...(it.tags||[]),...it.marks.map(k=>MARK_TAG[k]).filter(Boolean)])];if(it.measures) it.measures=it.measures.map(normMeas);
+  if(it.orderAdj&&it.boughtPrice!=null){it.boughtPrice+=it.orderAdj;it.extraDisc=(it.extraDisc||0)+Math.max(0,-it.orderAdj);it.orderAdj=null}
+  return it};
 const INFO_PROMPT=`첨부 이미지는 쇼핑몰 상품 페이지를 캡쳐한 것(또는 그 일부)입니다. 이미지에 실제로 보이는 글자만 읽어서 아래 형식의 JSON 하나만 답하세요. 보이지 않는 값은 추측하지 말고 null로 두세요.
 {"brand": 브랜드명 또는 null, "name": 상품명 그대로 또는 null, "price": 지금 살 수 있는 판매 금액 숫자(할인가가 있으면 할인가, 취소선이 그어진 정가가 아닌 쪽) 또는 null, "currency": "KRW" 같은 통화 코드, "store": 화면에 쇼핑몰·앱 이름이 보일 때만 그 이름, 아니면 null}
 금액은 쉼표와 통화 기호 없이 숫자로만 적으세요.`;
@@ -371,7 +376,7 @@ function renderFilters(){
   const tf=[tin('f-tlo','tLo','기온 최저'),h('span',{class:'hint'},'~'),tin('f-thi','tHi','최고 ℃')];
   const ws=h('select',{id:'f-w','aria-label':'날씨',onchange:e=>{ui.w=e.target.value;renderList()}},h('option',{value:''},'날씨 전체'),WEATHER.map(x=>h('option',{value:x},x)));ws.value=ui.w;
   if(ui.tab==='look'){$('#filters').replaceChildren(q,...tf,ws);return}
-  $('#filters').replaceChildren(q,...tf,sel('f-store','구매처',stores,'store'),sel('f-cat','카테고리',cats,'cat'),...(tags.length?[sel('f-tag','태그',tags,'tag')]:[]),h('button',{type:'button',class:'chip','aria-pressed':String(ui.meas),onclick:()=>{ui.meas=!ui.meas;render()}},'실측 있음'),...(hasAdj?[h('button',{type:'button',class:'chip','aria-pressed':String(ui.adj),onclick:()=>{ui.adj=!ui.adj;try{localStorage.setItem('cu-adj',ui.adj?'1':'0')}catch(e){};render()}},'주문 할인 반영')]:[]),
+  $('#filters').replaceChildren(q,...tf,sel('f-store','구매처',stores,'store'),sel('f-cat','카테고리',cats,'cat'),...(tags.length?[sel('f-tag','태그',tags,'tag')]:[]),h('button',{type:'button',class:'chip','aria-pressed':String(ui.meas),onclick:()=>{ui.meas=!ui.meas;render()}},'실측 있음'),
     );
 }
 function cover(it){
@@ -384,7 +389,24 @@ function cover(it){
   if((it.media||[]).length>1) c.append(h('span',{class:'cnt'},'+'+((it.media.length)-1)));
   return c;
 }
-const paid=it=>it.boughtPrice==null?null:it.boughtPrice+(ui.adj?(it.orderAdj||0):0);
+const paid=it=>it.boughtPrice;
+async function saveExtra(it,n){
+  it.extraDisc=n;
+  if(local) return;
+  await db.collection('items').doc(it.id).update({extraDisc:n,boughtPrice:it.boughtPrice,orderAdj:null});
+}
+function priceRow(it){
+  let on=false,extra=Number(it.extraDisc)||0;
+  const val=h('span',{class:'price'}),note=h('span',{class:'hint'});
+  const inp=h('input',{type:'text',id:'d-extra',class:'tf',inputmode:'decimal',placeholder:'추가 할인 금액','aria-label':'추가 할인 금액',value:extra||''});
+  const box=h('div',{class:'xrow',hidden:true},inp,h('span',{class:'hint'},'장바구니 쿠폰·적립금·포인트로 더 할인받은 금액'));
+  const paint=()=>{val.textContent=money(it.boughtPrice+(on?extra:0),it.currency);note.textContent=on?'추가 할인 전 금액':''};
+  const tg=h('button',{type:'button',class:'chip','aria-pressed':'false',onclick:()=>{on=!on;tg.setAttribute('aria-pressed',String(on));box.hidden=!on;paint()}},'추가 할인');
+  inp.addEventListener('input',()=>{extra=num(inp.value)||0;paint()});
+  inp.addEventListener('change',()=>{saveExtra(it,extra).catch(()=>toast('추가 할인 금액을 저장하지 못했어요'))});
+  paint();
+  return [h('div',{class:'xrow'},val,tg,note),box];
+}
 function priceEl(it){
   const owned=it.status==='owned';
   const v=owned&&it.boughtPrice!=null?paid(it):it.salePrice;
@@ -452,8 +474,9 @@ function openDetail(id){
   const add=(k,v)=>{if(v!=null&&v!=='') rows.push(h('dt',{},k),h('dd',{},v))};
   add('상태',it.status==='owned'?'소장':'위시');
   add('구매처',it.store); add('카테고리',it.category); add('여행지',it.place);
+  
+  if(it.status==='owned'){ add('구매 가격',it.boughtPrice!=null?priceRow(it):null); if(it.qty>1) add('수량',it.qty+'개'); add('구매일',it.boughtDate); }
   add('평소 할인가',it.salePrice!=null?h('span',{class:'price'},money(it.salePrice,it.currency)):null);
-  if(it.status==='owned'){ add('구매 가격',it.boughtPrice!=null?h('span',{class:'price'},money(it.boughtPrice,it.currency)):null); if(it.orderAdj&&it.boughtPrice!=null) add('주문 할인 반영가',h('span',{class:'price'},money(it.boughtPrice+it.orderAdj,it.currency))); if(it.qty>1) add('수량',it.qty+'개'); add('구매일',it.boughtDate); }
   
   add('사이즈',it.size); add('핏',it.fit); add('입은 날 기온',tempText(it.temps));
   add('태그',(it.tags||[]).map(t=>'#'+t).join(' '));
@@ -648,8 +671,8 @@ function openEditor(src,id){
     fld('이름','name',F.name),
     fld('구매처','store',pickChips('store',storeOpts),F.store),
     fld('카테고리','category',pickChips('category',catOpts),F.category),
-    h('div',{class:'row'},fld('평소 할인가','salePrice',F.salePrice),fld('통화','currency',F.currency)),
     ownedRow,
+    h('div',{class:'row'},fld('평소 할인가','salePrice',F.salePrice),fld('통화','currency',F.currency)),
     h('div',{class:'fld'},h('span',{class:'lb'},'실측 · 핏 (참고할 제품만)'),
       h('div',{class:'row'},fld('사이즈','size',F.size),fld('핏','fit',pickChips('fit',FITS),F.fit)),
       measBox,sizePick,
@@ -680,7 +703,7 @@ function openEditor(src,id){
       }
       const owned=d.status==='owned';
       const data={status:d.status,name,link:F.link.value.trim(),store:F.store.value.trim(),category:F.category.value.trim(),
-        currency:F.currency.value,salePrice:num(F.salePrice.value),boughtPrice:owned?num(F.boughtPrice.value):null,boughtDate:owned?F.boughtDate.value:'',qty:owned?(num(F.qty.value)||1):1,orderAdj:owned?(d.orderAdj||null):null,orderId:d.orderId||null,
+        currency:F.currency.value,salePrice:num(F.salePrice.value),boughtPrice:owned?num(F.boughtPrice.value):null,boughtDate:owned?F.boughtDate.value:'',qty:owned?(num(F.qty.value)||1):1,orderAdj:null,extraDisc:owned?(Number(d.extraDisc)||0):0,orderId:d.orderId||null,
         marks:[],tags:[...new Set(F.tags.value.split(/[,#]/).map(t=>t.trim()).filter(Boolean))],memo:F.memo.value.trim(),media,temps:cleanTemps(d.temps),size:F.size.value.trim(),fit:F.fit.value.trim(),
         measures:d.measures.map(m=>({k:canonPart(m.k).k,v:String(m.v).trim(),t:m.t||'flat'})).filter(m=>m.k&&m.v),
         createdAt:d.createdAt||Date.now(),updatedAt:Date.now()};
@@ -853,7 +876,7 @@ async function reviewOrder(r,file){
     const base=t!=null?t:sum0,eff=ex?base-ex:t;
     const adj=allocate(act.map(x=>x.price),st==='owned'?eff:null);
     rows.forEach(x=>{x.adj=0});act.forEach((x,i)=>{x.adj=adj[i]});
-    rows.forEach((x,i)=>{outs[i].textContent=x.on&&x.adj?'→ 반영가 '+money(x.price+x.adj,cur):''});
+    rows.forEach((x,i)=>{outs[i].textContent=x.on&&x.adj?'→ 구매 가격 '+money(x.price+x.adj,cur):''});
     const sum=sum0;
     fin.textContent=ex?money(base,cur)+' − 추가 할인 '+money(ex,cur)+' = 실 결제 '+money(eff,cur):'실 결제 '+money(eff!=null?eff:sum,cur)+(eff==null?' (상품 합계)':'');
     info.textContent='상품 금액 합계 '+money(sum,cur)+(eff!=null?' · 차액 '+(eff-sum).toLocaleString('ko-KR')+' (주문 전체에 걸린 쿠폰·포인트·배송비). 상품 금액 비율대로 나눠 반영해요.':'');
@@ -895,7 +918,7 @@ async function reviewOrder(r,file){
         let media=[];
         if(x.blob){if(assets){const u=await assets.upload(x.blob,{type:'image/jpeg'});media=[{id:u.id,type:'image'}]}else if(local) media=[{url:x.url,type:'image'}]}
         await persist(null,{status:st,name:x.name.trim(),link:'',store:store.value.trim(),category:x.cat||cat.value.trim(),currency:cur,salePrice:st==='wish'?x.price:null,
-        boughtPrice:st==='owned'?x.price:null,boughtDate:st==='owned'?date.value:'',qty:x.qty,orderAdj:st==='owned'?(x.adj||null):null,orderId:st==='owned'?orderId:null,marks:[],tags:tg,memo:st==='owned'?exMemo:'',media,createdAt:now+i,updatedAt:now+i});
+        boughtPrice:st==='owned'?x.price+(x.adj||0):null,boughtDate:st==='owned'?date.value:'',qty:x.qty,orderAdj:null,extraDisc:st==='owned'?Math.max(0,-(x.adj||0)):0,orderId:st==='owned'?orderId:null,marks:[],tags:tg,memo:'',media,createdAt:now+i,updatedAt:now+i});
         x.done=true;
       }
       ui.tab=st;s.close();render();toast(act.length+'개를 추가했어요');
