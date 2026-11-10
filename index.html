@@ -192,7 +192,16 @@ const fmtN=n=>String(Math.round(n*10)/10);
 function pair(m){const n=parseFloat(m.v);if(!GIRTH.includes(m.k)||!isFinite(n)) return null;return m.t==='round'?{flat:n/2,round:n}:{flat:n,round:n*2}}
 const measText=m=>{const p=pair(m);return p?'단면 '+fmtN(p.flat)+' (둘레 '+fmtN(p.round)+')':m.v};
 const normMeas=m=>{const c=canonPart(m.k);return {k:c.k,v:String(m.v??''),t:m.t||c.t}};
-const hasMeas=it=>(it.measures||[]).length>0;
+const hasMeas=it=>(it.measures||[]).some(m=>String(m.v||'').trim());
+function arrangeMeas(list){
+  const std=PARTS.map(p=>({k:p,v:'',t:'flat',std:true})),extra=[];
+  for(const m0 of list){
+    const m=normMeas(m0);if(!m.k&&!m.v) continue;
+    const s=std.find(x=>x.k===m.k);
+    if(s&&!s.v&&m.v){s.v=m.v;s.t=m.t} else if(!s||m.v) extra.push(m);
+  }
+  return [...std,...extra];
+}
 const MARK_TAG={rebuy:'재구매',travel:'여행',tryon:'입어봄'};
 const norm=it=>{if((it.marks||[]).length) it.tags=[...new Set([...(it.tags||[]),...it.marks.map(k=>MARK_TAG[k]).filter(Boolean)])];if(it.measures) it.measures=it.measures.map(normMeas);return it};
 const SIZE_PROMPT=`첨부 이미지는 의류 상품 페이지의 실측 사이즈표 캡쳐입니다. 이미지에 실제로 보이는 수치만 읽어서 아래 형식의 JSON 하나만 답하세요. 보이지 않는 값은 추측하거나 채우지 마세요.
@@ -360,7 +369,7 @@ function openDetail(id){
     it.localName?h('div',{class:'local',lang:'und'},h('span',{},it.localName),h('button',{type:'button',class:'chip',onclick:()=>{navigator.clipboard.writeText(it.localName).then(()=>toast('현지 이름을 복사했어요'),()=>toast('복사하지 못했어요. 글자를 길게 눌러 복사해 주세요'))}},'복사')):null,
     link?h('a',{class:'link',href:link,target:'_blank',rel:'noopener noreferrer'},'상품 페이지 열기 ↗'):null,
     h('dl',{class:'kv'},rows),
-    hasMeas(it)?h('div',{class:'fld'},h('span',{class:'lb'},'실측 (cm)'),h('dl',{class:'kv'},it.measures.flatMap(m=>[h('dt',{},m.k||'-'),h('dd',{class:'price'},measText(m))]))):null,
+    hasMeas(it)?h('div',{class:'fld'},h('span',{class:'lb'},'실측 (cm)'),h('dl',{class:'kv'},it.measures.filter(m=>String(m.v||'').trim()).flatMap(m=>[h('dt',{},m.k||'-'),h('dd',{class:'price'},measText(m))]))):null,
     it.memo?h('p',{class:'memo'},it.memo):null);
   let armed=false;
   const del=h('button',{type:'button',class:'btn danger',onclick:async()=>{
@@ -425,7 +434,7 @@ let activeEditor=null;
 function openEditor(src,id){
   const d=Object.assign({status:ui.tab==='owned'?'owned':'wish',name:'',link:'',store:'',category:'',currency:'KRW',salePrice:null,boughtPrice:null,boughtDate:'',marks:[],tags:[],memo:'',media:[]},src||{});
   d.media=(d.media||[]).map(m=>Object.assign({},m)); d.marks=[...(d.marks||[])];
-  d.tags=[...(d.tags||[])]; d.measures=(d.measures||[]).map(normMeas); if(d.place&&!d.tags.includes(d.place)) d.tags.push(d.place);
+  d.tags=[...(d.tags||[])]; d.measures=arrangeMeas(d.measures||[]);let measOpen=d.measures.some(m=>m.v); if(d.place&&!d.tags.includes(d.place)) d.tags.push(d.place);
   if(d.localName) d.memo=[d.localName,d.memo].filter(Boolean).join('\n');
   const removed=[];
   const F={};
@@ -477,10 +486,10 @@ function openEditor(src,id){
       const typ=h('select',{id:'e-mt-'+i,'aria-label':'적은 수치가 단면인지 둘레인지',onchange:e=>{m.t=e.target.value;upd()}},h('option',{value:'flat'},'단면'),h('option',{value:'round'},'둘레'));typ.value=m.t||'flat';
       const sub=h('div',{class:'msub'},typ,calc);sub.hidden=!GIRTH.includes(m.k);
       return h('div',{class:'mrow'},
-      h('input',{type:'text',id:'e-mk-'+i,value:m.k,placeholder:'부위','aria-label':'부위',oninput:e=>{m.k=e.target.value},onchange:e=>{const c=canonPart(e.target.value);if(/둘레|단면/.test(e.target.value)){m.t=c.t;typ.value=c.t}m.k=c.k;e.target.value=c.k;sub.hidden=!GIRTH.includes(m.k);upd()}}),
+      h('input',{type:'text',id:'e-mk-'+i,value:m.k,placeholder:'항목 이름 (예: 종아리)','aria-label':'부위',readonly:m.std,oninput:e=>{m.k=e.target.value},onchange:e=>{if(m.std) return;const c=canonPart(e.target.value);if(/둘레|단면/.test(e.target.value)){m.t=c.t;typ.value=c.t}const s=d.measures.find(x=>x.std&&x.k===c.k);if(s&&!s.v){s.v=m.v;s.t=m.t;d.measures.splice(i,1);drawMeas();const el=$('#e-mv-'+d.measures.indexOf(s));if(el) el.focus();return}m.k=c.k;e.target.value=c.k;sub.hidden=!GIRTH.includes(m.k);upd()}}),
       h('input',{type:'text',id:'e-mv-'+i,value:m.v,inputmode:'decimal',placeholder:'cm','aria-label':'수치',oninput:e=>{m.v=e.target.value;upd()}}),
-      h('button',{type:'button',class:'btn','aria-label':'이 줄 빼기',onclick:()=>{d.measures.splice(i,1);drawMeas()}},'×'),sub)}));
-    measBox.hidden=!d.measures.length;
+      h('button',{type:'button',class:'btn','aria-label':'이 줄 빼기',onclick:()=>{if(m.std) m.v='';else d.measures.splice(i,1);drawMeas()}},'×'),sub)}));
+    measBox.hidden=!measOpen;
   }
   const readBtn=h('button',{type:'button',class:'btn',onclick:()=>$('#pick-size').click()},'사이즈표 캡쳐에서 읽기');
   async function readSize(file){
@@ -489,7 +498,7 @@ function openEditor(src,id){
     try{
       const r=await sample.json(SIZE_PROMPT,{images:[await shrink(file,2400)]});
       const sizes=(r&&Array.isArray(r.sizes)?r.sizes:[]).filter(s=>s&&Array.isArray(s.measures)&&s.measures.length);
-      const apply=s=>{d.measures=s.measures.map(m=>normMeas({k:String(m&&m.k||'').slice(0,30),v:String(m&&m.v!=null?m.v:'').slice(0,20)}));drawMeas()};
+      const apply=s=>{d.measures=arrangeMeas(s.measures.map(m=>({k:String(m&&m.k||'').slice(0,30),v:String(m&&m.v!=null?m.v:'').slice(0,20)})));measOpen=true;drawMeas()};
       if(!sizes.length) toast('실측 수치를 찾지 못했어요. 표가 다 보이게 캡쳐해 주세요');
       else if(sizes.length===1){apply(sizes[0]);if(sizes[0].size&&!F.size.value) F.size.value=String(sizes[0].size);sizePick.replaceChildren();toast('읽었어요. 수치가 맞는지 확인해 주세요')}
       else sizePick.replaceChildren(h('span',{class:'hint'},'어느 사이즈를 넣을까요?'),...sizes.map(s=>h('button',{type:'button',class:'chip',onclick:()=>{F.size.value=String(s.size||'');apply(s)}},String(s.size||'?'))));
@@ -523,9 +532,9 @@ function openEditor(src,id){
     h('div',{class:'fld'},h('span',{class:'lb'},'실측 · 핏 (참고할 제품만)'),
       h('div',{class:'row'},fld('사이즈','size',F.size),fld('핏','fit',pickChips('fit',FITS),F.fit)),
       measBox,sizePick,
-      h('div',{class:'chips'},PARTS.map(p=>h('button',{type:'button',class:'chip',onclick:()=>{d.measures.push({k:p,v:''});drawMeas();const el=$('#e-mv-'+(d.measures.length-1));if(el) el.focus()}},'+ '+p))),
-      h('div',{class:'chips'},h('button',{type:'button',class:'btn',onclick:()=>{d.measures.push({k:'',v:''});drawMeas()}},'+ 빈 줄'),readBtn),
-      h('span',{class:'hint'},'수치는 cm 기준. 부위 이름은 어깨너비→어깨처럼 같은 이름으로 맞춰지고, 가슴·허리·엉덩이·허벅지·밑단·소매통은 단면과 둘레를 함께 보여 줘요. 사이즈표에 여러 사이즈가 있으면 읽은 뒤 고를 수 있어요.')),
+      
+      h('div',{class:'chips'},h('button',{type:'button',class:'btn',onclick:()=>{measOpen=true;drawMeas()}},'실측 입력'),h('button',{type:'button',class:'btn',onclick:()=>{measOpen=true;d.measures.push({k:'',v:'',t:'flat'});drawMeas();const el=$('#e-mk-'+(d.measures.length-1));if(el) el.focus()}},'+ 이 제품만의 항목'),readBtn),
+      h('span',{class:'hint'},'수치는 cm 기준. 기본 항목은 해당하는 것만 채우고 나머지는 비워 두세요. 기본 항목에 없는 부위는 이 제품만의 항목으로 추가돼요. 가슴·허리·엉덩이·허벅지·밑단·소매통은 단면과 둘레를 함께 보여 줘요.')),
     fld('태그','tags',tagOpts.length?h('div',{class:'chips'},tagOpts.map(t=>h('button',{type:'button',class:'chip',onclick:()=>{const cur=F.tags.value.split(',').map(s=>s.trim()).filter(Boolean);if(!cur.includes(t)) F.tags.value=[...cur,t].join(', ')}},'#'+t))):null,F.tags),
     fld('메모','memo',F.memo));
   const save=h('button',{type:'button',class:'btn primary',onclick:onSave},'저장');
@@ -551,7 +560,7 @@ function openEditor(src,id){
       const data={status:d.status,name,link:F.link.value.trim(),store:F.store.value.trim(),category:F.category.value.trim(),
         currency:F.currency.value,salePrice:num(F.salePrice.value),boughtPrice:owned?num(F.boughtPrice.value):null,boughtDate:owned?F.boughtDate.value:'',qty:owned?(num(F.qty.value)||1):1,orderAdj:owned?(d.orderAdj||null):null,orderId:d.orderId||null,
         marks:[],tags:[...new Set(F.tags.value.split(/[,#]/).map(t=>t.trim()).filter(Boolean))],memo:F.memo.value.trim(),media,size:F.size.value.trim(),fit:F.fit.value.trim(),
-        measures:d.measures.map(m=>({k:canonPart(m.k).k,v:String(m.v).trim(),t:m.t||'flat'})).filter(m=>m.k||m.v),
+        measures:d.measures.map(m=>({k:canonPart(m.k).k,v:String(m.v).trim(),t:m.t||'flat'})).filter(m=>m.k&&m.v),
         createdAt:d.createdAt||Date.now(),updatedAt:Date.now()};
       await persist(id,data);
       if(assets) for(const rid of removed) assets.delete(rid).catch(()=>{});
