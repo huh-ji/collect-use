@@ -821,6 +821,7 @@ async function reviewOrder(r,file){
   const exOn=h('input',{type:'checkbox',id:'o-ex-on',onchange:()=>{exBox.hidden=!exOn.checked;recalc()}});
   const fin=h('p',{class:'fin'});
   const outs=[];
+  const catOpts=[...new Set([...CATS,...used('category')])],storeOpts=[...new Set([...STORES.map(s=>s[0]),...used('store')])],tagOpts=[...new Set(items.flatMap(i=>i.tags||[]))].slice(0,14);
   function recalc(){
     const act=rows.filter(x=>x.on),t=num(total.value);
     const sum0=act.reduce((a,x)=>a+x.price,0),ex=exOn.checked?(num(exAmt.value)||0):0;
@@ -841,17 +842,19 @@ async function reviewOrder(r,file){
       th,h('input',{type:'text',class:'nm-in',id:'o-nm-'+i,value:x.name,'aria-label':'상품 이름',oninput:e=>{x.name=e.target.value}}),
       h('div',{class:'sub'},
         h('input',{type:'text',class:'q',id:'o-q-'+i,inputmode:'numeric',value:x.qty,'aria-label':'수량',oninput:e=>{x.qty=num(e.target.value)||1}}),'개',
-        h('input',{type:'text',id:'o-p-'+i,inputmode:'decimal',value:x.price,'aria-label':'금액',oninput:e=>{x.price=num(e.target.value)||0;recalc()}}),out));
+        h('input',{type:'text',id:'o-p-'+i,inputmode:'decimal',value:x.price,'aria-label':'금액',oninput:e=>{x.price=num(e.target.value)||0;recalc()}}),out,
+        h('select',{id:'o-c-'+i,'aria-label':'이 상품의 카테고리',onchange:e=>{x.cat=e.target.value}},h('option',{value:''},'카테고리: 공통'),catOpts.map(o=>h('option',{value:o},o)))));
   }));
   total.addEventListener('input',recalc);
-  const fl=(label,el)=>h('div',{class:'fld'},h('label',{for:el.id},label),el);
+  const fl=(label,el,opts)=>h('div',{class:'fld'},h('label',{for:el.id},label),opts&&opts.length?h('div',{class:'chips'},opts.map(o=>h('button',{type:'button',class:'chip',onclick:()=>{el.value=o}},o))):null,el);
   const body=h('div',{class:'bd gut'},
     h('p',{class:'hint',style:'margin:0'},'읽은 내용이 캡쳐와 맞는지 확인하고 틀린 곳은 고쳐 주세요. 상품 사진은 캡쳐에서 자동으로 잘라 넣어요. 잘못 잘렸거나 비어 있으면 사진 칸을 눌러 직접 잘라 주세요. 금액은 줄 전체 금액(수량 포함)이에요.'),
-    h('div',{class:'row'},fl('구매처',store),fl('구매일',date)),
+    fl('구매처',store,storeOpts),fl('구매일',date),
     list,
     fl('캡쳐에 적힌 최종 결제금액',total),
     h('label',{class:'chk',for:'o-ex-on'},exOn,'캡쳐 이후 추가 결제 할인이 있었어요 (토스·카드 즉시할인, 적립금 등)'),exBox,fin,info,
-    h('div',{class:'row'},fl('카테고리',cat),fl('태그',tags)));
+    fl('카테고리 (전체 공통)',cat,catOpts),
+    h('div',{class:'fld'},h('label',{for:'o-tags'},'태그 (전체 공통)'),tagOpts.length?h('div',{class:'chips'},tagOpts.map(t=>h('button',{type:'button',class:'chip',onclick:()=>{const c=tags.value.split(',').map(s=>s.trim()).filter(Boolean);if(!c.includes(t)) tags.value=[...c,t].join(', ')}},'#'+t))):null,tags));
   const save=h('button',{type:'button',class:'btn primary',onclick:async()=>{
     const act=rows.filter(x=>x.on&&!x.done&&(x.name.trim()||x.price));
     if(!act.length){toast('추가할 상품을 하나 이상 선택해 주세요');return}
@@ -862,7 +865,7 @@ async function reviewOrder(r,file){
       for(const [i,x] of act.entries()){
         let media=[];
         if(x.blob){if(assets){const u=await assets.upload(x.blob,{type:'image/jpeg'});media=[{id:u.id,type:'image'}]}else if(local) media=[{url:x.url,type:'image'}]}
-        await persist(null,{status:'owned',name:x.name.trim(),link:'',store:store.value.trim(),category:cat.value.trim(),currency:cur,salePrice:null,
+        await persist(null,{status:'owned',name:x.name.trim(),link:'',store:store.value.trim(),category:x.cat||cat.value.trim(),currency:cur,salePrice:null,
         boughtPrice:x.price,boughtDate:date.value,qty:x.qty,orderAdj:x.adj||null,orderId,marks:[],tags:tg,memo:exMemo,media,createdAt:now+i,updatedAt:now+i});
         x.done=true;
       }
