@@ -134,6 +134,9 @@ a.link{color:var(--accent);font-weight:600;overflow-wrap:anywhere}
 .orow .sub input{width:108px}
 .orow .sub input.q{width:60px}
 .orow .out{font-family:var(--mono);color:var(--ink)}
+.chk{display:flex;gap:8px;align-items:center}
+.chk input{width:20px;height:20px;flex:none}
+.fin{margin:0;font-weight:700;font-size:16px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(88px + env(safe-area-inset-bottom,0px));z-index:40;background:var(--ink);color:var(--bg);padding:9px 16px;border-radius:999px;font-size:13px;max-width:calc(100% - 32px);text-align:center}
 </style>
 
@@ -533,14 +536,22 @@ function reviewOrder(r){
   const cat=h('input',{type:'text',id:'o-cat',placeholder:'전체에 같이 넣을 카테고리'});
   const tags=h('input',{type:'text',id:'o-tags',placeholder:'쉼표로 구분'});
   const info=h('p',{class:'hint',style:'margin:0'});
+  const exAmt=h('input',{type:'text',id:'o-ex-amt',inputmode:'decimal',placeholder:'할인받은 금액',oninput:()=>recalc()});
+  const exNote=h('input',{type:'text',id:'o-ex-note',placeholder:'예: 토스페이 할인, 적립금'});
+  const exBox=h('div',{class:'row',hidden:true},h('div',{class:'fld'},h('label',{for:'o-ex-amt'},'추가 할인 금액'),exAmt),h('div',{class:'fld'},h('label',{for:'o-ex-note'},'내용 (선택)'),exNote));
+  const exOn=h('input',{type:'checkbox',id:'o-ex-on',onchange:()=>{exBox.hidden=!exOn.checked;recalc()}});
+  const fin=h('p',{class:'fin'});
   const outs=[];
   function recalc(){
     const act=rows.filter(x=>x.on),t=num(total.value);
-    const adj=allocate(act.map(x=>x.price),t);
+    const sum0=act.reduce((a,x)=>a+x.price,0),ex=exOn.checked?(num(exAmt.value)||0):0;
+    const base=t!=null?t:sum0,eff=ex?base-ex:t;
+    const adj=allocate(act.map(x=>x.price),eff);
     rows.forEach(x=>{x.adj=0});act.forEach((x,i)=>{x.adj=adj[i]});
     rows.forEach((x,i)=>{outs[i].textContent=x.on&&x.adj?'→ 반영가 '+money(x.price+x.adj,cur):''});
-    const sum=act.reduce((a,x)=>a+x.price,0);
-    info.textContent='상품 금액 합계 '+money(sum,cur)+(t!=null?' · 차액 '+(t-sum).toLocaleString('ko-KR')+' (주문 전체에 걸린 쿠폰·포인트·배송비). 상품 금액 비율대로 나눠 반영해요.':'');
+    const sum=sum0;
+    fin.textContent=ex?money(base,cur)+' − 추가 할인 '+money(ex,cur)+' = 실 결제 '+money(eff,cur):'실 결제 '+money(eff!=null?eff:sum,cur)+(eff==null?' (상품 합계)':'');
+    info.textContent='상품 금액 합계 '+money(sum,cur)+(eff!=null?' · 차액 '+(eff-sum).toLocaleString('ko-KR')+' (주문 전체에 걸린 쿠폰·포인트·배송비). 상품 금액 비율대로 나눠 반영해요.':'');
   }
   const list=h('div',{},rows.map((x,i)=>{
     const out=h('span',{class:'out'});outs.push(out);
@@ -557,16 +568,18 @@ function reviewOrder(r){
     h('p',{class:'hint',style:'margin:0'},'읽은 내용이 캡쳐와 맞는지 확인하고 틀린 곳은 고쳐 주세요. 금액은 줄 전체 금액(수량 포함)이에요.'),
     h('div',{class:'row'},fl('구매처',store),fl('구매일',date)),
     list,
-    fl('최종 결제금액',total),info,
+    fl('캡쳐에 적힌 최종 결제금액',total),
+    h('label',{class:'chk',for:'o-ex-on'},exOn,'캡쳐 이후 추가 결제 할인이 있었어요 (토스·카드 즉시할인, 적립금 등)'),exBox,fin,info,
     h('div',{class:'row'},fl('카테고리',cat),fl('태그',tags)));
   const save=h('button',{type:'button',class:'btn primary',onclick:async()=>{
     const act=rows.filter(x=>x.on&&(x.name.trim()||x.price));
     if(!act.length){toast('추가할 상품을 하나 이상 선택해 주세요');return}
     save.disabled=true;save.textContent='추가하는 중…';
+    const ex=exOn.checked?(num(exAmt.value)||0):0,exMemo=ex?'추가 결제 할인 '+money(ex,cur)+(exNote.value.trim()?' ('+exNote.value.trim()+')':'')+' · 주문 전체 기준':'';
     const now=Date.now(),orderId='o'+now,tg=[...new Set(tags.value.split(/[,#]/).map(t=>t.trim()).filter(Boolean))];
     try{
       for(const [i,x] of act.entries()) await persist(null,{status:'owned',name:x.name.trim(),link:'',store:store.value.trim(),category:cat.value.trim(),currency:cur,salePrice:null,
-        boughtPrice:x.price,boughtDate:date.value,qty:x.qty,orderAdj:x.adj||null,orderId,marks:[],tags:tg,memo:'',media:[],createdAt:now+i,updatedAt:now+i});
+        boughtPrice:x.price,boughtDate:date.value,qty:x.qty,orderAdj:x.adj||null,orderId,marks:[],tags:tg,memo:exMemo,media:[],createdAt:now+i,updatedAt:now+i});
       ui.tab='owned';s.close();render();toast(act.length+'개를 소장에 추가했어요');
     }catch(e){save.disabled=false;save.textContent='소장에 추가';toast('일부를 추가하지 못했어요 ('+(e&&e.code||'오류')+'). 목록을 확인해 주세요')}
   }},'소장에 추가');
