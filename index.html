@@ -145,6 +145,7 @@ a.link{color:var(--accent);font-weight:600;overflow-wrap:anywhere}
 .pn{display:flex;flex-direction:column;min-width:0;overflow-wrap:anywhere;font-weight:600;font-size:14px}
 .pn small{font-weight:400;color:var(--muted)}
 button.thumb{padding:0}
+img.mini{width:46px;height:58px;object-fit:cover;border-radius:6px;border:1px solid var(--line)}
 div.thumb{width:auto;height:240px;max-width:92%}
 div.thumb img,div.thumb video{width:auto;height:100%;max-width:100%;object-fit:contain}
 input[type=number]{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:8px 10px;min-height:38px;max-width:100%}
@@ -428,9 +429,14 @@ async function boot(){
 }
 function showNote(t){const n=$('#note');n.textContent=t;n.hidden=!t}
 async function persist(id,data){
-  if(local){ if(id){const i=items.findIndex(x=>x.id===id);items[i]=Object.assign({id},data)} else items.push(Object.assign({id:'l'+Date.now()+Math.random()},data)); render(); return }
+  if(local){
+    if(id){const i=items.findIndex(x=>x.id===id);items[i]=Object.assign({id},data)}
+    else{id='l'+Date.now()+Math.random();items.push(Object.assign({id},data))}
+    render();return id;
+  }
   const ref=id?db.collection('items').doc(id):db.collection('items').doc();
   await ref.set(data);
+  return ref.id;
 }
 async function removeItem(it){
   if(local){items=items.filter(x=>x.id!==it.id);render();return}
@@ -447,7 +453,7 @@ function visible(){
     if(ui.cat&&it.category!==ui.cat) return false;
     if(!tagColorMatch(it,colorsOf(it).map(c=>c.n))) return false;
     if(ui.meas&&!hasMeas(it)) return false;
-    if(!tempMatch(it,false)) return false;
+    if(!tempMatch({temps:itemTemps(it)},false)) return false;
     if(ui.mark&&!(it.marks||[]).includes(ui.mark)) return false;
     if(q){const hay=[it.name,it.localName,it.place,it.size,it.fit,storesOf(it).join(' '),it.category,it.memo,(it.tags||[]).join(' '),colorsOf(it).map(c=>c.n).join(' ')].join(' ').toLowerCase();if(!hay.includes(q)) return false}
     return true;
@@ -510,13 +516,16 @@ function priceEl(it){
 }
 function markLabels(it){return (it.marks||[]).map(k=>(MARKS.find(m=>m[0]===k)||[])[1]).filter(Boolean)}
 const linked=l=>(l.itemIds||[]).map(id=>items.find(i=>i.id===id)).filter(Boolean);
+const itemLooks=it=>looks.filter(l=>(l.itemIds||[]).includes(it.id));
+const lookTemps=l=>[...(l.temps||[]),...linked(l).flatMap(i=>i.temps||[])];
+const itemTemps=it=>[...(it.temps||[]),...itemLooks(it).flatMap(l=>l.temps||[])];
 function itemFace(i){
   const m=(i.media||[]).find(x=>x.type!=='video');
   return [m?h('img',{src:mediaUrl(m),alt:''}):h('span',{class:'ph'}),h('span',{class:'pn'},i.name||'(이름 없음)',h('small',{},[i.status==='owned'?'소장':'위시',i.store].filter(Boolean).join(' · ')))];
 }
 function renderLooks(){
   const q=ui.q.trim().toLowerCase();
-  const list=looks.filter(l=>tempMatch(l,true)&&tagColorMatch(l,[...colorsOf(l),...linked(l).flatMap(colorsOf)].map(c=>c.n))).filter(l=>!q||[l.memo,(l.tags||[]).join(' '),linked(l).map(i=>i.name).join(' ')].join(' ').toLowerCase().includes(q)).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
+  const list=looks.filter(l=>tempMatch({temps:lookTemps(l)},true)&&tagColorMatch(l,[...colorsOf(l),...linked(l).flatMap(colorsOf)].map(c=>c.n))).filter(l=>!q||[l.memo,(l.tags||[]).join(' '),linked(l).map(i=>i.name).join(' ')].join(' ').toLowerCase().includes(q)).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
   $('#grid').replaceChildren(...list.map(l=>{
     const n=linked(l).length,tg=l.tags||[],ph=lookPhotos(l),tt=tempText(l.temps),cs=[...colorsOf(l),...linked(l).flatMap(colorsOf)];
     return h('button',{type:'button',class:'card',onclick:()=>openLookDetail(l.id)},
@@ -586,6 +595,7 @@ function openDetail(id){
   add('사이즈',it.size); add('핏',it.fit);
   add('색상',colorsOf(it).length?swatchRow(colorsOf(it)):null);
   add('입은 날 기온',tempText(it.temps));
+  {const lt=tempText(itemLooks(it).flatMap(l=>l.temps||[]));if(lt) add('코디의 기온',lt)}
   add('태그',(it.tags||[]).map(t=>'#'+t).join(' '));
   if(!hasMeas(it)) add('실측',null);
   if(!it.memo) add('메모',null);
@@ -832,6 +842,13 @@ function openEditor(src,id){
   const markBtns=h('div',{class:'chips'},MARKS.map(([k,l])=>{const b=h('button',{type:'button',class:'chip','aria-pressed':String(d.marks.includes(k)),onclick:()=>{const on=!d.marks.includes(k);d.marks=on?[...d.marks,k]:d.marks.filter(x=>x!==k);b.setAttribute('aria-pressed',String(on))}},l);return b}));
   const storeOpts=[...new Set([...STORES.map(s=>s[0]),...used('store')])],catOpts=[...new Set([...CATS,...used('category')])];
   const tagOpts=[...new Set([...tagsOf(items),'재구매','여행','입어봄'])];
+  const lookPicks=[],lookStrip=h('div',{class:'strip'});
+  const lookMemo=h('input',{type:'text',id:'e-look-memo',placeholder:'코디 메모 (선택)',autocomplete:'off','aria-label':'코디 메모'});
+  function drawLookStrip(){
+    lookStrip.replaceChildren(...lookPicks.map((m,i)=>h('div',{class:'thumb'},h('img',{src:m.url,alt:''}),h('button',{type:'button','aria-label':'이 코디 사진 빼기',onclick:()=>{lookPicks.splice(i,1);drawLookStrip()}},'×'))));
+    lookStrip.hidden=lookMemo.hidden=!lookPicks.length;
+  }
+  const curLooks=id?looks.filter(l=>(l.itemIds||[]).includes(id)):[];
 
   const body=h('div',{class:'bd gut'},
     statusBtns,
@@ -859,13 +876,18 @@ function openEditor(src,id){
       h('span',{class:'hint'},'수치는 cm 기준. 기본 항목은 카테고리(상의·하의·원피스)에 맞춰 바뀌고, 해당하는 것만 채우고 나머지는 비워 두세요. 기본 항목에 없는 부위는 이 제품만의 항목으로 추가돼요. 가슴·허리·엉덩이·허벅지·밑단·소매통은 단면과 둘레를 함께 보여 줘요.')),
     fld('태그','tags',tagOpts.length?h('div',{class:'chips'},tagOpts.map(t=>h('button',{type:'button',class:'chip',onclick:()=>{const cur=F.tags.value.split(',').map(s=>s.trim()).filter(Boolean);if(!cur.includes(t)) F.tags.value=[...cur,t].join(', ')}},'#'+t))):null,F.tags),
     tempEditor(d.temps,'e-t'),
-    fld('메모','memo',F.memo));
+    fld('메모','memo',F.memo),
+    h('div',{class:'fld'},h('span',{class:'lb'},'이 제품의 코디'),
+      curLooks.length?h('div',{class:'swrow'},curLooks.map(l=>lookPhotos(l)[0]?h('img',{src:mediaUrl(lookPhotos(l)[0]),alt:l.memo||'코디 사진',class:'mini'}):null)):null,
+      lookStrip,lookMemo,
+      h('div',{class:'chips'},filePick('코디 사진 넣기',{accept:'image/*',multiple:true},async f=>{for(const x of f){if(x.type.startsWith('image/')){const b=await shrink(x);lookPicks.push({blob:b,url:URL.createObjectURL(b)})}}drawLookStrip()})),
+      h('span',{class:'hint'},'넣은 사진은 저장할 때 이 제품과 연결된 코디 하나로 만들어져요. 이 제품에 적은 색상·기온·메모는 코디에서도 함께 보이니 따로 적지 않아도 돼요. 다른 옷 연결이나 자세한 내용은 코디 탭에서 고칠 수 있어요.')));
   const save=h('button',{type:'button',class:'btn primary',onclick:onSave},'저장');
   const s=openSheet(id?'기록 수정':'새 기록',body,h('div',{class:'ft gut'},h('span',{class:'grow'}),save));
   const origClose=s.close;
   const closeAll=()=>{activeEditor=null;origClose()};
   s.sheet.querySelector('.hd .btn').onclick=closeAll;
-  activeEditor=api; syncStatus(); drawStrip(); drawMeas(); syncEx(); drawLinks(); drawCats();
+  activeEditor=api; syncStatus(); drawStrip(); drawMeas(); syncEx(); drawLinks(); drawCats(); drawLookStrip();
 
   async function onSave(){
     const name=F.name.value.trim();
@@ -889,8 +911,19 @@ function openEditor(src,id){
         marks:[],tags:[...new Set(F.tags.value.split(/[,#]/).map(t=>t.trim()).filter(Boolean))],memo:F.memo.value.trim(),media,temps:cleanTemps(d.temps),size:F.size.value.trim(),fit:F.fit.value.trim(),colors:d.colors.map(c=>({n:c.n,hex:colorHex(c)})),
         measures:d.measures.map(m=>({k:canonPart(m.k).k,v:String(m.v).trim(),t:m.t||'flat'})).filter(m=>m.k&&m.v),
         createdAt:d.createdAt||Date.now(),updatedAt:Date.now()};
-      await persist(id,data);
+      id=await persist(id,data);
       if(assets) for(const rid of removed) assets.delete(rid).catch(()=>{});
+      removed.length=0;
+      if(lookPicks.length){
+        const photos=[];
+        for(const pk of lookPicks){
+          if(assets){const u=await assets.upload(pk.blob,{type:pk.blob.type||'image/jpeg'});photos.push({id:u.id,type:'image'})}
+          else if(local) photos.push({url:pk.url,type:'image'});
+          else throw {code:'no_assets'};
+        }
+        await saveLook(null,{photos,memo:lookMemo.value.trim(),tags:[],itemIds:[id],temps:[],colors:[],createdAt:Date.now()});
+        lookPicks.length=0;
+      }
       ui.tab=d.status;closeAll();render();toast('저장했어요');
     }catch(e){
       const code=e&&e.code;
@@ -917,6 +950,7 @@ function openLookDetail(id){
   const body=h('div',{class:'bd gut'},
     lookPhotos(l).length?h('div',{class:'gallery'},lookPhotos(l).map(m=>h('img',{src:mediaUrl(m),alt:l.memo||'코디 사진'}))):null,
     tempText(l.temps)?h('p',{class:'price',style:'margin:0'},tempText(l.temps)):null,
+    tempText(li.flatMap(i=>i.temps||[]))?h('div',{class:'xrow'},h('span',{class:'hint'},'연결한 옷 기온'),h('span',{class:'price'},tempText(li.flatMap(i=>i.temps||[])))):null,
     (colorsOf(l).length||li.some(i=>colorsOf(i).length))?h('div',{class:'fld'},h('span',{class:'lb'},'색 조합'),
       colorsOf(l).length?swatchRow(colorsOf(l)):null,
       li.some(i=>colorsOf(i).length)?h('div',{class:'xrow'},h('span',{class:'hint'},'연결한 옷'),swatchRow(li.flatMap(colorsOf))):null):null,
@@ -924,7 +958,8 @@ function openLookDetail(id){
     tg.length?h('p',{class:'hint',style:'margin:0'},tg.map(t=>'#'+t).join(' ')):null,
     h('div',{class:'fld'},h('span',{class:'lb'},'연결한 내 옷'),
       li.length?h('div',{class:'plist'},li.map(i=>h('button',{type:'button',class:'prow',onclick:()=>{s.close();openDetail(i.id)}},itemFace(i))))
-        :h('span',{class:'hint'},'연결한 옷이 없어요. 수정에서 내 기록의 옷을 연결할 수 있어요.')));
+        :h('span',{class:'hint'},'연결한 옷이 없어요. 수정에서 내 기록의 옷을 연결할 수 있어요.'),
+      li.filter(i=>i.memo).map(i=>h('p',{class:'hint',style:'margin:0'},(i.name||'옷')+' · '+i.memo))));
   let armed=false;
   const del=h('button',{type:'button',class:'btn danger',onclick:async()=>{
     if(!armed){armed=true;del.textContent='정말 삭제 (한 번 더)';return}
@@ -971,7 +1006,7 @@ function openLookEditor(src){
     tempEditor(temps,'l-t'),
     h('div',{class:'fld'},h('label',{for:'l-memo'},'메모'),memo),
     h('div',{class:'fld'},h('label',{for:'l-tags'},'태그'),tagOpts.length?h('div',{class:'chips'},tagOpts.map(t=>h('button',{type:'button',class:'chip',onclick:()=>{const cur=tags.value.split(',').map(s=>s.trim()).filter(Boolean);if(!cur.includes(t)) tags.value=[...cur,t].join(', ')}},'#'+t))):null,tags),
-    h('div',{class:'fld'},h('label',{for:'l-q'},'관련된 내 옷 연결 (선택)'),pq,plist));
+    h('div',{class:'fld'},h('label',{for:'l-q'},'관련된 내 옷 연결 (선택)'),pq,plist,h('span',{class:'hint'},'연결한 옷에 적어 둔 색상·기온·메모는 코디에서도 함께 보이고, 기온·색상으로 찾을 때도 포함돼요.')));
   const save=h('button',{type:'button',class:'btn primary',onclick:async()=>{
     if(!picks.length){toast('코디 사진을 넣어 주세요');return}
     save.disabled=true;save.textContent='저장 중…';
