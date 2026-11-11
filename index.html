@@ -164,6 +164,18 @@ input[type=number]{background:var(--surface);border:1px solid var(--line);border
 .chip[data-s="2"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent);font-weight:600}
 .kv a.link{font-weight:400}
 .lrow{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center}
+.chip.edit{border-style:dashed;color:var(--muted)}
+.fpanel{display:flex;flex-direction:column;gap:8px;max-height:42vh;overflow-y:auto;padding:2px 0 4px}
+.fpanel .lb{font-size:12px;font-weight:600;color:var(--muted)}
+.tabs.mini{display:inline-flex}
+.tabs.mini button{flex:none;padding:4px 10px;font-size:12px}
+.sw{display:inline-block;width:22px;height:22px;border-radius:50%;border:1px solid var(--line);flex:none;vertical-align:middle}
+.sw.sm{width:14px;height:14px}
+.swrow{display:flex;gap:4px;flex-wrap:wrap;align-items:center}
+.ctag{display:inline-flex;gap:5px;align-items:center;font-size:13px}
+.chip .sw{margin-right:5px}
+.crow{display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:center}
+img.drop{max-width:100%;cursor:crosshair;border-radius:8px;touch-action:manipulation}
 .msub{grid-column:1/-1;display:flex;gap:8px;align-items:center}
 .msub select{width:auto}
 .chk{display:flex;gap:8px;align-items:center}
@@ -180,6 +192,7 @@ input[type=number]{background:var(--surface);border:1px solid var(--line);border
   </div>
   <div class="tabs" role="tablist" id="tabs"></div>
   <div class="filters" id="filters"></div>
+  <div class="fpanel" id="fpanel" hidden></div>
 </div></header>
 
 <main class="gut"><div class="inner">
@@ -219,6 +232,80 @@ const normMeas=m=>{const c=canonPart(m.k);return {k:c.k,v:String(m.v??''),t:m.t|
 const storesOf=it=>it.stores&&it.stores.length?it.stores:(it.store?[it.store]:[]);
 const linksOf=it=>(it.links&&it.links.length?it.links:(it.link?[it.link]:[])).filter(safeUrl);
 const allStores=()=>[...new Set(items.flatMap(storesOf))];
+const COLORS=[['블랙','#1a1a1a'],['차콜','#3d3f43'],['그레이','#8e9196'],['라이트그레이','#cfd2d6'],['화이트','#ffffff'],['아이보리','#f3ecdc'],['베이지','#d9c3a1'],['카멜','#b98a52'],['브라운','#6f4a32'],['다크브라운','#3f2a1e'],['카키','#6b6b45'],['올리브','#7c7f3a'],['그린','#2f7d4f'],['민트','#9fd8c4'],['네이비','#1f2a4d'],['블루','#2f62c9'],['스카이블루','#a9cdee'],['데님','#5a7896'],['퍼플','#6d4aa3'],['라벤더','#c9b8e6'],['핑크','#f2b3c6'],['레드','#c8232c'],['버건디','#6e1f2d'],['오렌지','#e9792b'],['옐로','#f0cf3e'],['머스타드','#c79a2a']];
+const okHex=x=>/^#[0-9a-f]{6}$/i.test(x||'');
+const hex2rgb=x=>{const n=parseInt(x.slice(1),16);return [n>>16&255,n>>8&255,n&255]};
+function rgb2lab(c){
+  const [r,g,b]=c.map(v=>{v/=255;return v>0.04045?Math.pow((v+0.055)/1.055,2.4):v/12.92});
+  const f=t=>t>0.008856?Math.cbrt(t):7.787*t+16/116;
+  const x=f((r*0.4124+g*0.3576+b*0.1805)/0.95047),y=f(r*0.2126+g*0.7152+b*0.0722),z=f((r*0.0193+g*0.1192+b*0.9505)/1.08883);
+  return [116*y-16,500*(x-y),200*(y-z)];
+}
+const COLOR_LAB=COLORS.map(([n,x])=>[n,rgb2lab(hex2rgb(x))]);
+function nearestColor(hex){const l=rgb2lab(hex2rgb(hex));let best='',bd=Infinity;for(const [n,c] of COLOR_LAB){const d=(l[0]-c[0])**2+(l[1]-c[1])**2+(l[2]-c[2])**2;if(d<bd){bd=d;best=n}}return best}
+const colorHex=c=>okHex(c.hex)?c.hex:((COLORS.find(x=>x[0]===c.n)||[])[1]||'#888888');
+const colorsOf=x=>(x.colors||[]).filter(c=>c&&c.n);
+const swatch=(c,sm)=>h('span',{class:'sw'+(sm?' sm':''),style:'background:'+colorHex(c),title:c.n});
+const swatchRow=(list,sm)=>h('div',{class:'swrow'},list.map(c=>sm?swatch(c,true):h('span',{class:'ctag'},swatch(c,true),c.n)));
+const tagsOf=arr=>[...new Set(arr.flatMap(i=>i.tags||[]))].sort((a,b)=>a.localeCompare(b,'ko'));
+const allTags=()=>tagsOf(ui.tab==='look'?looks:items);
+const shortUrl=u=>{try{return new URL(u).hostname.replace(/^www\./,'')}catch(e){return '링크'}};
+let prefs={};
+const optList=kind=>{
+  const hid=prefs['hide_'+kind]||[];
+  const base=kind==='stores'?[...STORES.map(s=>s[0]),...allStores()]:[...CATS,...used('category')];
+  return [...new Set(base)].filter(o=>!hid.includes(o));
+};
+async function setHidden(kind,name,hide){
+  const cur=prefs['hide_'+kind]||[],nx=hide?[...new Set([...cur,name])]:cur.filter(x=>x!==name);
+  if(nx.length===cur.length) return;
+  prefs=Object.assign({},prefs,{['hide_'+kind]:nx});
+  if(db&&!local){try{await db.doc('meta/prefs').set(prefs)}catch(e){toast('목록 변경을 저장하지 못했어요')}}
+}
+const editChip=(on,fn)=>h('button',{type:'button',class:'chip edit',onclick:fn},on?'편집 끝':'목록 편집');
+function tagColorMatch(x,cols){
+  const tg=x.tags||[];
+  if(ui.tags.length&&!(ui.tagMode==='and'?ui.tags.every(t=>tg.includes(t)):ui.tags.some(t=>tg.includes(t)))) return false;
+  if(ui.colors.length&&!ui.colors.some(n=>cols.includes(n))) return false;
+  return true;
+}
+function colorEditor(list,getUrls,prefix){
+  const box=h('div',{class:'meas'});
+  function draw(){
+    box.replaceChildren(...list.map((c,i)=>{
+      const sl=h('select',{id:prefix+'-n-'+i,'aria-label':'색상 이름',onchange:e=>{c.n=e.target.value}},COLORS.map(x=>h('option',{value:x[0]},x[0])));sl.value=c.n;
+      return h('div',{class:'crow'},swatch(c),sl,h('button',{type:'button',class:'btn','aria-label':'이 색상 빼기',onclick:()=>{list.splice(i,1);draw()}},'×'));
+    }));
+    box.hidden=!list.length;
+  }
+  draw();
+  return h('div',{class:'fld'},h('span',{class:'lb'},'색상'),box,
+    h('div',{class:'chips'},h('button',{type:'button',class:'btn',onclick:()=>{const u=getUrls();if(!u.length){toast('먼저 사진을 넣어 주세요');return}openDropper(u,hex=>{list.push({n:nearestColor(hex),hex});draw()})}},'사진에서 색 찍기')),
+    h('div',{class:'chips'},COLORS.map(([n,x])=>h('button',{type:'button',class:'chip','aria-label':n+' 추가',onclick:()=>{list.push({n,hex:x});draw()}},h('span',{class:'sw sm',style:'background:'+x}),n))),
+    h('span',{class:'hint'},'사진에서 찍으면 실제 색이 그대로 저장되고, 가장 가까운 일반 색 이름이 자동으로 붙어요. 이름은 바꿀 수 있어요. 색상표를 눌러 바로 추가할 수도 있어요.'));
+}
+function openDropper(urls,onPick){
+  let pend=null;
+  const sw=h('span',{class:'sw'}),nm=h('span',{class:'hint'},'색을 가져올 곳을 사진에서 누르세요');
+  const addBtn=h('button',{type:'button',class:'btn primary',disabled:true,onclick:()=>{if(!pend) return;onPick(pend);toast(nearestColor(pend)+' 색을 추가했어요');pend=null;addBtn.disabled=true}},'이 색 추가');
+  const body=h('div',{class:'bd gut'},urls.map(u=>{
+    const im=h('img',{src:u,alt:'색을 찍을 사진',class:'drop'});
+    im.addEventListener('click',e=>{
+      try{
+        const r=im.getBoundingClientRect(),c=document.createElement('canvas');c.width=im.naturalWidth;c.height=im.naturalHeight;
+        const g=c.getContext('2d');g.drawImage(im,0,0);
+        const x=Math.round((e.clientX-r.left)/r.width*c.width),y=Math.round((e.clientY-r.top)/r.height*c.height),rad=Math.max(2,Math.round(c.width*0.012));
+        const dd=g.getImageData(clamp(x-rad,0,c.width-1),clamp(y-rad,0,c.height-1),rad*2+1,rad*2+1).data;
+        let R=0,G=0,B=0,n=0;for(let i=0;i<dd.length;i+=4){if(dd[i+3]<10) continue;R+=dd[i];G+=dd[i+1];B+=dd[i+2];n++}
+        if(!n) return;
+        pend='#'+[R,G,B].map(v=>Math.round(v/n).toString(16).padStart(2,'0')).join('');
+        sw.style.background=pend;nm.textContent=nearestColor(pend);addBtn.disabled=false;
+      }catch(err){toast('이 사진에서는 색을 가져올 수 없어요. 색상표에서 골라 주세요')}
+    });
+    return im;
+  }));
+  openSheet('사진에서 색 찍기',body,h('div',{class:'ft gut'},sw,nm,h('span',{class:'grow'}),addBtn));
+}
 const hasMeas=it=>(it.measures||[]).some(m=>String(m.v||'').trim());
 const PART_SETS={top:['어깨','가슴','소매','소매통','총장','밑단'],bottom:['허리','엉덩이','허벅지','밑위','밑단','총장'],dress:['어깨','가슴','허리','엉덩이','소매','총장']};
 function partsFor(cat){
@@ -321,7 +408,7 @@ let toastT;function toast(msg){document.querySelectorAll('.toast').forEach(t=>t.
 /* ---------- data ---------- */
 let db=null,assets=null,downloads=null,sample=null,local=false,loaded=false;
 let items=[],looks=[];
-const ui={tab:'wish',q:'',store:'',cat:'',tag:'',mark:'',adj:true,meas:false,tLo:'',tHi:'',w:''};
+const ui={tab:'wish',q:'',store:'',cat:'',tag:'',mark:'',adj:true,meas:false,tLo:'',tHi:'',w:'',tags:[],tagMode:'or',colors:[],panel:false};
 try{const t=localStorage.getItem('cu-tab');if(t) ui.tab=t;if(localStorage.getItem('cu-adj')==='0') ui.adj=false}catch(e){}
 
 async function boot(){
@@ -337,6 +424,7 @@ async function boot(){
     render();
   },err=>{clearTimeout(timer);loaded=true;showNote('기록을 불러올 수 없어요 ('+(err&&err.code||'오류')+').');render()});
   db.collection('looks').onSnapshot(snap=>{looks=snap.docs.map(d=>Object.assign({id:d.id},d.data()));render()},()=>{});
+  db.doc('meta/prefs').onSnapshot(snap=>{prefs=snap.exists?Object.assign({},snap.data()):{}},()=>{});
 }
 function showNote(t){const n=$('#note');n.textContent=t;n.hidden=!t}
 async function persist(id,data){
@@ -357,11 +445,11 @@ function visible(){
     if(ui.tab!=='all'&&(it.status||'wish')!==ui.tab) return false;
     if(ui.store&&!storesOf(it).includes(ui.store)) return false;
     if(ui.cat&&it.category!==ui.cat) return false;
-    if(ui.tag&&!(it.tags||[]).includes(ui.tag)) return false;
+    if(!tagColorMatch(it,colorsOf(it).map(c=>c.n))) return false;
     if(ui.meas&&!hasMeas(it)) return false;
     if(!tempMatch(it,false)) return false;
     if(ui.mark&&!(it.marks||[]).includes(ui.mark)) return false;
-    if(q){const hay=[it.name,it.localName,it.place,it.size,it.fit,storesOf(it).join(' '),it.category,it.memo,(it.tags||[]).join(' ')].join(' ').toLowerCase();if(!hay.includes(q)) return false}
+    if(q){const hay=[it.name,it.localName,it.place,it.size,it.fit,storesOf(it).join(' '),it.category,it.memo,(it.tags||[]).join(' '),colorsOf(it).map(c=>c.n).join(' ')].join(' ').toLowerCase();if(!hay.includes(q)) return false}
     return true;
   }).sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0));
 }
@@ -374,7 +462,8 @@ function renderTabs(){
 let filtersBuilt='';
 function renderFilters(){
   const stores=allStores(),cats=used('category'),tags=[...new Set(items.flatMap(i=>i.tags||[]))],hasAdj=items.some(i=>i.orderAdj);
-  const sig=JSON.stringify([stores,cats,tags,ui.mark,hasAdj,ui.adj,ui.meas,ui.tab==='look']);
+  const nSel=ui.tags.length+ui.colors.length;
+  const sig=JSON.stringify([stores,cats,ui.meas,ui.tab==='look',ui.panel,nSel]);
   if(sig===filtersBuilt) return; filtersBuilt=sig;
   const sel=(id,label,opts,key)=>{const s=h('select',{id,'aria-label':label,onchange:e=>{ui[key]=e.target.value;renderList()}},h('option',{value:''},label+' 전체'),opts.map(o=>h('option',{value:o},o)));s.value=opts.includes(ui[key])?ui[key]:'';return s};
   const keep=$('#f-q');
@@ -382,9 +471,23 @@ function renderFilters(){
   const tin=(id,key,ph)=>h('input',{type:'number',id,class:'tf',placeholder:ph,'aria-label':ph,value:ui[key],oninput:e=>{ui[key]=e.target.value;renderList()}});
   const tf=[tin('f-tlo','tLo','기온 최저'),h('span',{class:'hint'},'~'),tin('f-thi','tHi','최고 ℃')];
   const ws=h('select',{id:'f-w','aria-label':'날씨',onchange:e=>{ui.w=e.target.value;renderList()}},h('option',{value:''},'날씨 전체'),WEATHER.map(x=>h('option',{value:x},x)));ws.value=ui.w;
-  if(ui.tab==='look'){$('#filters').replaceChildren(q,...tf,ws);return}
-  $('#filters').replaceChildren(q,...tf,sel('f-store','구매처',stores,'store'),sel('f-cat','카테고리',cats,'cat'),...(tags.length?[sel('f-tag','태그',tags,'tag')]:[]),h('button',{type:'button',class:'chip','aria-pressed':String(ui.meas),onclick:()=>{ui.meas=!ui.meas;render()}},'실측 있음'),
+  const pb=h('button',{type:'button',class:'chip',id:'f-panel','aria-pressed':String(nSel>0),'aria-expanded':String(ui.panel),onclick:()=>{ui.panel=!ui.panel;render()}},'태그·색상'+(nSel?' '+nSel:'')+(ui.panel?' ▴':' ▾'));
+  if(ui.tab==='look'){$('#filters').replaceChildren(q,pb,...tf,ws);return}
+  $('#filters').replaceChildren(q,pb,...tf,sel('f-store','구매처',stores,'store'),sel('f-cat','카테고리',cats,'cat'),h('button',{type:'button',class:'chip','aria-pressed':String(ui.meas),onclick:()=>{ui.meas=!ui.meas;render()}},'실측 있음'),
     );
+}
+function renderPanel(){
+  const p=$('#fpanel');p.hidden=!ui.panel;if(!ui.panel) return;
+  const look=ui.tab==='look',tags=allTags();
+  const cols=[...new Set((look?looks.flatMap(l=>[...colorsOf(l),...linked(l).flatMap(colorsOf)]):items.flatMap(colorsOf)).map(c=>c.n))];
+  const tog=(arr,v)=>arr.includes(v)?arr.filter(x=>x!==v):[...arr,v];
+  p.replaceChildren(
+    h('div',{class:'xrow'},h('span',{class:'lb'},'태그'),
+      h('div',{class:'tabs mini'},[['or','하나라도 포함'],['and','모두 포함']].map(([k,l])=>h('button',{type:'button','aria-selected':String(ui.tagMode===k),onclick:()=>{ui.tagMode=k;render()}},l))),
+      (ui.tags.length||ui.colors.length)?h('button',{type:'button',class:'chip',onclick:()=>{ui.tags=[];ui.colors=[];render()}},'선택 해제'):null),
+    tags.length?h('div',{class:'chips'},tags.map(t=>h('button',{type:'button',class:'chip','aria-pressed':String(ui.tags.includes(t)),onclick:()=>{ui.tags=tog(ui.tags,t);render()}},'#'+t))):h('span',{class:'hint'},'아직 태그가 없어요.'),
+    h('span',{class:'lb'},'색상'),
+    cols.length?h('div',{class:'chips'},COLORS.filter(c=>cols.includes(c[0])).map(([n,x])=>h('button',{type:'button',class:'chip','aria-pressed':String(ui.colors.includes(n)),onclick:()=>{ui.colors=tog(ui.colors,n);render()}},h('span',{class:'sw sm',style:'background:'+x}),n))):h('span',{class:'hint'},'아직 색상을 기록한 항목이 없어요.'));
 }
 function cover(it){
   const m=(it.media||[])[0];
@@ -413,12 +516,12 @@ function itemFace(i){
 }
 function renderLooks(){
   const q=ui.q.trim().toLowerCase();
-  const list=looks.filter(l=>tempMatch(l,true)).filter(l=>!q||[l.memo,(l.tags||[]).join(' '),linked(l).map(i=>i.name).join(' ')].join(' ').toLowerCase().includes(q)).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
+  const list=looks.filter(l=>tempMatch(l,true)&&tagColorMatch(l,[...colorsOf(l),...linked(l).flatMap(colorsOf)].map(c=>c.n))).filter(l=>!q||[l.memo,(l.tags||[]).join(' '),linked(l).map(i=>i.name).join(' ')].join(' ').toLowerCase().includes(q)).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
   $('#grid').replaceChildren(...list.map(l=>{
-    const n=linked(l).length,tg=l.tags||[],ph=lookPhotos(l),tt=tempText(l.temps);
+    const n=linked(l).length,tg=l.tags||[],ph=lookPhotos(l),tt=tempText(l.temps),cs=[...colorsOf(l),...linked(l).flatMap(colorsOf)];
     return h('button',{type:'button',class:'card',onclick:()=>openLookDetail(l.id)},
       h('div',{class:'cover'},ph[0]?h('img',{src:mediaUrl(ph[0]),alt:l.memo||'코디 사진',loading:'lazy'}):'사진 없음',n?h('span',{class:'where'},'내 옷 '+n):null,ph.length>1?h('span',{class:'cnt'},'+'+(ph.length-1)):null),
-      (l.memo||tg.length||tt)?h('div',{class:'body'},l.memo?h('span',{class:'nm'},l.memo):null,tt?h('span',{class:'loc'},tt):null,tg.length?h('span',{class:'loc'},tg.map(t=>'#'+t).join(' ')):null):null);
+      (l.memo||tg.length||tt||cs.length)?h('div',{class:'body'},l.memo?h('span',{class:'nm'},l.memo):null,cs.length?swatchRow(cs,true):null,tt?h('span',{class:'loc'},tt):null,tg.length?h('span',{class:'loc'},tg.map(t=>'#'+t).join(' ')):null):null);
   }));
   $('#summary').textContent=loaded?list.length+'장':'기록을 불러오는 중…';
   $('#empty').replaceChildren(...(loaded&&!list.length?[h('div',{class:'empty'},h('h2',{},looks.length?'검색에 맞는 코디가 없어요':'참고할 코디 사진을 모아 보세요'),looks.length?'검색어를 바꿔 보세요.':'내 옷이 아니어도 괜찮아요. + 버튼으로 캡쳐를 넣고, 관련된 옷이 내 기록에 있으면 연결해 두세요.')]:[]));
@@ -427,7 +530,7 @@ function renderList(){
   if(ui.tab==='look'){renderLooks();return}
   const list=visible();
   $('#grid').replaceChildren(...list.map(it=>h('button',{type:'button',class:'card',onclick:()=>openDetail(it.id)},cover(it),
-    h('div',{class:'body'},h('span',{class:'nm'},it.name||it.localName||'(이름 없음)'),priceEl(it),it.qty>1?h('span',{class:'loc'},'수량 '+it.qty+'개'):null,tempText(it.temps)?h('span',{class:'loc'},tempText(it.temps)):null,
+    h('div',{class:'body'},h('span',{class:'nm'},it.name||it.localName||'(이름 없음)'),priceEl(it),it.qty>1?h('span',{class:'loc'},'수량 '+it.qty+'개'):null,tempText(it.temps)?h('span',{class:'loc'},tempText(it.temps)):null,colorsOf(it).length?swatchRow(colorsOf(it),true):null,
       (()=>{const ls=hasMeas(it)?['실측']:[];return ls.length?h('div',{class:'marks'},ls.map(l=>h('span',{class:'mark'},l))):null})()))));
   const sum=$('#summary');
   if(!loaded){sum.textContent='기록을 불러오는 중…'}
@@ -445,7 +548,7 @@ function renderList(){
         h('li',{},'매장에서 찍은 사진·동영상은 + 버튼으로 바로 추가'))));
   } else em.replaceChildren();
 }
-function render(){renderTabs();renderFilters();renderList()}
+function render(){const tg=allTags();ui.tags=ui.tags.filter(t=>tg.includes(t));renderTabs();renderFilters();renderPanel();renderList()}
 
 /* ---------- sheets ---------- */
 function openSheet(title,body,footer){
@@ -463,19 +566,34 @@ function openDetail(id){
   const link=safeUrl(it.link);
   const lk=looks.filter(l=>(l.itemIds||[]).includes(it.id));
   const rows=[];
-  const add=(k,v)=>{if(v!=null&&v!=='') rows.push(h('dt',{},k),h('dd',{},v))};
+  const add=(k,v)=>rows.push([k,(v==null||v===''||(Array.isArray(v)&&!v.length))?null:v]);
+  const pr=v=>v!=null?h('span',{class:'price'},money(v,it.currency)):null;
   add('상태',it.status==='owned'?'소장':'위시');
-  const ss=storesOf(it);
-  if(it.status==='owned'){add('구매처',it.store);add(it.store?'다른 판매처':'판매처',ss.filter(s=>s!==it.store).join(', '))}
+  const ss=storesOf(it),own=it.status==='owned';
+  if(own){add('구매처',it.store);const rest=ss.filter(s=>s!==it.store);if(rest.length) add(it.store?'다른 판매처':'판매처',rest.join(', '))}
   else add('판매처',ss.join(', '));
-  linksOf(it).forEach(u=>add('링크',h('a',{class:'link',href:u,target:'_blank',rel:'noopener noreferrer'},u)));
-  add('카테고리',it.category); add('여행지',it.place);
-  
-  if(it.status==='owned'){ add('구매 가격',it.boughtPrice!=null?h('span',{class:'price'},money(it.boughtPrice,it.currency)):null); if(it.extraOn&&it.extraDisc&&it.boughtPrice!=null) add('추가 할인 전',h('div',{class:'xrow'},h('span',{class:'price'},money(it.boughtPrice+it.extraDisc,it.currency)),h('span',{class:'hint'},'추가 할인 '+money(it.extraDisc,it.currency)))); if(it.qty>1) add('수량',it.qty+'개'); add('구매일',it.boughtDate); }
-  add('평소 할인가',it.salePrice!=null?h('span',{class:'price'},money(it.salePrice,it.currency)):null);
-  
-  add('사이즈',it.size); add('핏',it.fit); add('입은 날 기온',tempText(it.temps));
+  const lks=linksOf(it);
+  add('링크',lks.length?h('div',{class:'xrow'},lks.map(u=>h('a',{class:'link',href:u,target:'_blank',rel:'noopener noreferrer',title:u},shortUrl(u)+' ↗'))):null);
+  add('카테고리',it.category);
+  if(it.place) add('여행지',it.place);
+  if(own){
+    add('구매 가격',pr(it.boughtPrice));
+    if(it.extraOn&&it.extraDisc&&it.boughtPrice!=null) add('추가 할인 전',h('div',{class:'xrow'},pr(it.boughtPrice+it.extraDisc),h('span',{class:'hint'},'추가 할인 '+money(it.extraDisc,it.currency))));
+    if(it.qty>1) add('수량',it.qty+'개');
+    add('구매일',it.boughtDate);
+  }
+  add('평소 할인가',pr(it.salePrice));
+  add('사이즈',it.size); add('핏',it.fit);
+  add('색상',colorsOf(it).length?swatchRow(colorsOf(it)):null);
+  add('입은 날 기온',tempText(it.temps));
   add('태그',(it.tags||[]).map(t=>'#'+t).join(' '));
+  if(!hasMeas(it)) add('실측',null);
+  if(!it.memo) add('메모',null);
+  const kv=h('dl',{class:'kv'});let showEmpty=false;
+  const nEmpty=rows.filter(r=>r[1]==null).length;
+  const paintKv=()=>kv.replaceChildren(...rows.filter(r=>r[1]!=null||showEmpty).flatMap(([k,v])=>[h('dt',{},k),v==null?h('dd',{class:'hint'},'—'):h('dd',{},v)]));
+  const et=nEmpty?h('button',{type:'button',class:'chip','aria-pressed':'false',onclick:()=>{showEmpty=!showEmpty;et.setAttribute('aria-pressed',String(showEmpty));et.textContent=showEmpty?'빈 항목 숨기기':'빈 항목 '+nEmpty+'개 보기';paintKv()}},'빈 항목 '+nEmpty+'개 보기'):null;
+  paintKv();
   const body=h('div',{class:'bd gut'},
     (it.media||[]).length?h('div',{class:'gallery'},it.media.map(m=>m.type==='video'
       ?h('video',{src:mediaUrl(m),controls:true,playsinline:true,preload:'metadata'})
@@ -483,7 +601,7 @@ function openDetail(id){
     h('p',{class:'title-lg'},it.name||it.localName||'(이름 없음)'),
     it.localName?h('div',{class:'local',lang:'und'},h('span',{},it.localName),h('button',{type:'button',class:'chip',onclick:()=>{navigator.clipboard.writeText(it.localName).then(()=>toast('현지 이름을 복사했어요'),()=>toast('복사하지 못했어요. 글자를 길게 눌러 복사해 주세요'))}},'복사')):null,
     
-    h('dl',{class:'kv'},rows),
+    kv,et?h('div',{class:'xrow'},et):null,
     hasMeas(it)?h('div',{class:'fld'},h('span',{class:'lb'},'실측 (cm)'),h('dl',{class:'kv'},it.measures.filter(m=>String(m.v||'').trim()).flatMap(m=>[h('dt',{},m.k||'-'),h('dd',{class:'price'},measText(m))]))):null,
     it.memo?h('p',{class:'memo'},it.memo):null,
     h('div',{class:'fld'},h('span',{class:'lb'},'코디'),
@@ -552,7 +670,7 @@ let activeEditor=null,autoReadOff=false;
 function openEditor(src,id){
   const d=Object.assign({status:ui.tab==='owned'?'owned':'wish',name:'',link:'',store:'',category:'',currency:'KRW',salePrice:null,boughtPrice:null,boughtDate:'',marks:[],tags:[],memo:'',media:[]},src||{});
   d.media=(d.media||[]).map(m=>Object.assign({},m)); d.marks=[...(d.marks||[])];
-  d.tags=[...(d.tags||[])]; d.temps=(d.temps||[]).map(r=>Object.assign({},r)); d.measures=arrangeMeas(d.measures||[],partsFor(d.category));let measOpen=d.measures.some(m=>m.v); if(d.place&&!d.tags.includes(d.place)) d.tags.push(d.place);
+  d.tags=[...(d.tags||[])]; d.colors=colorsOf(d).map(c=>Object.assign({},c)); d.temps=(d.temps||[]).map(r=>Object.assign({},r)); d.measures=arrangeMeas(d.measures||[],partsFor(d.category));let measOpen=d.measures.some(m=>m.v); if(d.place&&!d.tags.includes(d.place)) d.tags.push(d.place);
   if(d.localName) d.memo=[d.localName,d.memo].filter(Boolean).join('\n');
   const removed=[];
   const F={};
@@ -673,25 +791,39 @@ function openEditor(src,id){
   }
   inp('store',{placeholder:'목록에 없는 곳 직접 입력'});
   const sel={};storesOf(d).forEach(s=>{sel[s]=1});if(d.status==='owned'&&d.store) sel[d.store]=2;
-  const storeBox=h('div',{class:'chips'}),storeHint=h('span',{class:'hint'});
+  const storeBox=h('div',{class:'chips'}),storeHint=h('span',{class:'hint'});let storeEdit=false;
   function drawStores(){
-    const opts=[...new Set([...STORES.map(s=>s[0]),...allStores(),...Object.keys(sel)])],own=d.status==='owned';
+    const opts=[...new Set([...optList('stores'),...Object.keys(sel)])],own=d.status==='owned';
     storeBox.replaceChildren(...opts.map(o=>{
-      const s=own?(sel[o]||0):Math.min(sel[o]||0,1);
+      const s=storeEdit?0:own?(sel[o]||0):Math.min(sel[o]||0,1);
       return h('button',{type:'button',class:'chip','data-s':String(s),'aria-pressed':String(s>0),onclick:()=>{
+        if(storeEdit){delete sel[o];setHidden('stores',o,true);drawStores();return}
         const cur=sel[o]||0;let nx;
         if(d.status==='owned'){nx=(cur+1)%3;if(nx===2) for(const k in sel) if(sel[k]===2) sel[k]=1}
         else nx=cur?0:1;
         if(nx) sel[o]=nx;else delete sel[o];
         drawStores();
-      }},(s===2?'구매 · ':s===1?'✓ ':'')+o);
-    }));
+      }},(storeEdit?'× ':s===2?'구매 · ':s===1?'✓ ':'')+o);
+    }),editChip(storeEdit,()=>{storeEdit=!storeEdit;drawStores()}));
   }
   function addStore(name){
     name=String(name||'').trim();if(!name) return;
     if(!sel[name]) sel[name]=(d.status==='owned'&&!Object.values(sel).includes(2))?2:1;
+    setHidden('stores',name,false);
     drawStores();
-  } inp('category',{placeholder:'직접 입력'});
+  } inp('category',{type:'hidden'});
+  const catAdd=h('input',{type:'text',id:'e-cat-add',placeholder:'목록에 없는 카테고리 직접 입력',autocomplete:'off','aria-label':'카테고리 직접 입력'});
+  const catBox=h('div',{class:'chips'});let catEdit=false;
+  function drawCats(){
+    const cur=F.category.value.trim(),opts=[...new Set([...optList('cats'),...(cur?[cur]:[])])];
+    catBox.replaceChildren(...opts.map(o=>{const on=!catEdit&&o===cur;
+      return h('button',{type:'button',class:'chip','data-s':on?'1':'0','aria-pressed':String(on),onclick:()=>{
+        if(catEdit){setHidden('cats',o,true);if(F.category.value.trim()===o) setCat('');else drawCats();return}
+        setCat(on?'':o);
+      }},(catEdit?'× ':on?'✓ ':'')+o)}),editChip(catEdit,()=>{catEdit=!catEdit;drawCats()}));
+  }
+  function setCat(v){F.category.value=v;F.category.dispatchEvent(new Event('change'));drawCats()}
+  function addCat(){const v=catAdd.value.trim();if(!v) return;catAdd.value='';setHidden('cats',v,false);setCat(v)}
   F.category.addEventListener('change',()=>{d.measures=arrangeMeas(d.measures.filter(m=>m.v||(!m.std&&m.k)),partsFor(F.category.value));drawMeas()});
   inp('salePrice',{inputmode:'decimal',placeholder:'자주 보이는 할인 가격',value:d.salePrice??''});
   inp('tags',{placeholder:'쉼표로 구분 · 예: 여름, 린넨',value:(d.tags||[]).join(', ')});
@@ -699,7 +831,7 @@ function openEditor(src,id){
   F.memo=h('textarea',{id:'e-memo',placeholder:'사이즈, 색상, 현지 이름, 매장 위치, 입어 본 느낌 등',value:d.memo||''});
   const markBtns=h('div',{class:'chips'},MARKS.map(([k,l])=>{const b=h('button',{type:'button',class:'chip','aria-pressed':String(d.marks.includes(k)),onclick:()=>{const on=!d.marks.includes(k);d.marks=on?[...d.marks,k]:d.marks.filter(x=>x!==k);b.setAttribute('aria-pressed',String(on))}},l);return b}));
   const storeOpts=[...new Set([...STORES.map(s=>s[0]),...used('store')])],catOpts=[...new Set([...CATS,...used('category')])];
-  const tagOpts=[...new Set([...items.flatMap(i=>i.tags||[]),'재구매','여행','입어봄'])].slice(0,16);
+  const tagOpts=[...new Set([...tagsOf(items),'재구매','여행','입어봄'])];
 
   const body=h('div',{class:'bd gut'},
     statusBtns,
@@ -714,11 +846,13 @@ function openEditor(src,id){
     fld('이름','name',F.name),
     fld('판매처 · 구매처','store',storeBox,
       h('div',{class:'lrow'},F.store,h('button',{type:'button',class:'btn',onclick:()=>{addStore(F.store.value);F.store.value=''}},'추가')),storeHint),
-    fld('카테고리','category',pickChips('category',catOpts),F.category),
+    h('div',{class:'fld'},h('span',{class:'lb'},'카테고리'),catBox,h('div',{class:'lrow'},catAdd,h('button',{type:'button',class:'btn',onclick:addCat},'추가')),F.category,
+      h('span',{class:'hint'},'목록 편집을 누르면 안 쓰는 항목을 목록에서 뺄 수 있어요. 이미 저장된 기록의 값은 바뀌지 않아요.')),
     ownedRow,extraRow,
     h('div',{class:'row'},fld('평소 할인가','salePrice',F.salePrice),fld('통화','currency',F.currency)),
-    h('div',{class:'fld'},h('span',{class:'lb'},'실측 · 핏 (참고할 제품만)'),
+    h('div',{class:'fld'},h('span',{class:'lb'},'사이즈 · 핏 · 색상 · 실측'),
       h('div',{class:'row'},fld('사이즈','size',F.size),fld('핏','fit',pickChips('fit',FITS),F.fit)),
+      colorEditor(d.colors,()=>d.media.filter(m=>m.type!=='video').map(mediaUrl),'e-c'),
       measBox,sizePick,
       
       h('div',{class:'chips'},h('button',{type:'button',class:'btn',onclick:()=>{measOpen=true;drawMeas()}},'실측 입력'),h('button',{type:'button',class:'btn',onclick:()=>{measOpen=true;d.measures.push({k:'',v:'',t:'flat'});drawMeas();const el=$('#e-mk-'+(d.measures.length-1));if(el) el.focus()}},'+ 이 제품만의 항목'),readBtn),
@@ -731,7 +865,7 @@ function openEditor(src,id){
   const origClose=s.close;
   const closeAll=()=>{activeEditor=null;origClose()};
   s.sheet.querySelector('.hd .btn').onclick=closeAll;
-  activeEditor=api; syncStatus(); drawStrip(); drawMeas(); syncEx(); drawLinks();
+  activeEditor=api; syncStatus(); drawStrip(); drawMeas(); syncEx(); drawLinks(); drawCats();
 
   async function onSave(){
     const name=F.name.value.trim();
@@ -748,10 +882,11 @@ function openEditor(src,id){
       const owned=d.status==='owned';
       const lks=[...new Set(links.map(u=>u.trim()).filter(Boolean))];
       if(F.store.value.trim()){addStore(F.store.value);F.store.value=''}
+      if(catAdd.value.trim()) addCat();
       const sts=Object.keys(sel),bought=sts.find(k=>sel[k]===2)||'';
       const data={status:d.status,name,link:lks[0]||'',links:lks,stores:sts,store:owned?bought:(sts[0]||''),category:F.category.value.trim(),
         currency:F.currency.value,salePrice:num(F.salePrice.value),boughtPrice:owned?num(F.boughtPrice.value):null,boughtDate:owned?F.boughtDate.value:'',qty:owned?(num(F.qty.value)||1):1,orderAdj:null,extraDisc:owned?(num(exInp.value)||0):0,extraOn:owned&&exOn,orderId:d.orderId||null,
-        marks:[],tags:[...new Set(F.tags.value.split(/[,#]/).map(t=>t.trim()).filter(Boolean))],memo:F.memo.value.trim(),media,temps:cleanTemps(d.temps),size:F.size.value.trim(),fit:F.fit.value.trim(),
+        marks:[],tags:[...new Set(F.tags.value.split(/[,#]/).map(t=>t.trim()).filter(Boolean))],memo:F.memo.value.trim(),media,temps:cleanTemps(d.temps),size:F.size.value.trim(),fit:F.fit.value.trim(),colors:d.colors.map(c=>({n:c.n,hex:colorHex(c)})),
         measures:d.measures.map(m=>({k:canonPart(m.k).k,v:String(m.v).trim(),t:m.t||'flat'})).filter(m=>m.k&&m.v),
         createdAt:d.createdAt||Date.now(),updatedAt:Date.now()};
       await persist(id,data);
@@ -782,6 +917,9 @@ function openLookDetail(id){
   const body=h('div',{class:'bd gut'},
     lookPhotos(l).length?h('div',{class:'gallery'},lookPhotos(l).map(m=>h('img',{src:mediaUrl(m),alt:l.memo||'코디 사진'}))):null,
     tempText(l.temps)?h('p',{class:'price',style:'margin:0'},tempText(l.temps)):null,
+    (colorsOf(l).length||li.some(i=>colorsOf(i).length))?h('div',{class:'fld'},h('span',{class:'lb'},'색 조합'),
+      colorsOf(l).length?swatchRow(colorsOf(l)):null,
+      li.some(i=>colorsOf(i).length)?h('div',{class:'xrow'},h('span',{class:'hint'},'연결한 옷'),swatchRow(li.flatMap(colorsOf))):null):null,
     l.memo?h('p',{class:'memo'},l.memo):null,
     tg.length?h('p',{class:'hint',style:'margin:0'},tg.map(t=>'#'+t).join(' ')):null,
     h('div',{class:'fld'},h('span',{class:'lb'},'연결한 내 옷'),
@@ -800,7 +938,7 @@ function openLookEditor(src){
   const isEdit=!!(src&&src.id);
   const d=Object.assign({memo:'',tags:[],itemIds:[]},src||{});
   const picks=lookPhotos(d).map(m=>Object.assign({},m)),removed=[],sel=new Set(d.itemIds||[]);
-  const temps=(d.temps||[]).map(r=>Object.assign({},r));
+  const temps=(d.temps||[]).map(r=>Object.assign({},r)),colors=colorsOf(d).map(c=>Object.assign({},c));
   const strip=h('div',{class:'strip'});
   function drawStrip(){
     strip.replaceChildren(
@@ -812,7 +950,7 @@ function openLookEditor(src){
     addFiles:async files=>{for(const f of files){if(f.type.startsWith('image/')) addBlob(await shrink(f));else toast('코디에는 사진만 넣을 수 있어요')}}};
   const memo=h('textarea',{id:'l-memo',placeholder:'색 조합, 참고할 점, 출처 등',value:d.memo||''});
   const tags=h('input',{type:'text',id:'l-tags',placeholder:'쉼표로 구분 · 예: 가을, 베이지',value:(d.tags||[]).join(', ')});
-  const tagOpts=[...new Set(looks.flatMap(l=>l.tags||[]))].slice(0,14);
+  const tagOpts=tagsOf(looks);
   const pq=h('input',{type:'search',id:'l-q',placeholder:'내 기록에서 찾기','aria-label':'연결할 옷 검색',oninput:()=>drawPick()});
   const plist=h('div',{class:'plist'});
   function drawPick(){
@@ -829,6 +967,7 @@ function openLookEditor(src){
         filePick('사진 넣기',{accept:'image/*',multiple:true},f=>api.addFiles(f))),
       pasteBox(b=>api.crop(b)),
       h('span',{class:'hint'},'넣은 사진의 자르기를 누르면 원하는 부분만 남길 수 있어요. 여러 장을 넣을 수 있고 첫 사진이 대표로 보여요.')),
+    colorEditor(colors,()=>picks.map(mediaUrl),'l-c'),
     tempEditor(temps,'l-t'),
     h('div',{class:'fld'},h('label',{for:'l-memo'},'메모'),memo),
     h('div',{class:'fld'},h('label',{for:'l-tags'},'태그'),tagOpts.length?h('div',{class:'chips'},tagOpts.map(t=>h('button',{type:'button',class:'chip',onclick:()=>{const cur=tags.value.split(',').map(s=>s.trim()).filter(Boolean);if(!cur.includes(t)) tags.value=[...cur,t].join(', ')}},'#'+t))):null,tags),
@@ -836,7 +975,7 @@ function openLookEditor(src){
   const save=h('button',{type:'button',class:'btn primary',onclick:async()=>{
     if(!picks.length){toast('코디 사진을 넣어 주세요');return}
     save.disabled=true;save.textContent='저장 중…';
-    const base={memo:memo.value.trim(),tags:[...new Set(tags.value.split(/[,#]/).map(t=>t.trim()).filter(Boolean))],itemIds:[...sel],temps:cleanTemps(temps)};
+    const base={memo:memo.value.trim(),tags:[...new Set(tags.value.split(/[,#]/).map(t=>t.trim()).filter(Boolean))],itemIds:[...sel],temps:cleanTemps(temps),colors:colors.map(c=>({n:c.n,hex:colorHex(c)}))};
     try{
       const photos=[];
       for(const p of picks){
@@ -916,7 +1055,7 @@ async function reviewOrder(r,file){
   const fin=h('p',{class:'fin'});
   const outs=[];
   let st=ui.tab==='wish'?'wish':'owned';
-  const catOpts=[...new Set([...CATS,...used('category')])],storeOpts=[...new Set([...STORES.map(s=>s[0]),...allStores()])],tagOpts=[...new Set(items.flatMap(i=>i.tags||[]))].slice(0,14);
+  const catOpts=optList('cats'),storeOpts=optList('stores'),tagOpts=tagsOf(items);
   function recalc(){
     const act=rows.filter(x=>x.on),t=num(total.value);
     const sum0=act.reduce((a,x)=>a+x.price,0),ex=exOn.checked?(num(exAmt.value)||0):0;
