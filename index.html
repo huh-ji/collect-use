@@ -163,6 +163,7 @@ input[type=number]{background:var(--surface);border:1px solid var(--line);border
 .chip[data-s="1"]{background:var(--sunken);border-color:var(--muted);color:var(--ink);font-weight:600}
 .chip[data-s="2"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent);font-weight:600}
 .kv a.link{font-weight:400}
+.lrow{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center}
 .msub{grid-column:1/-1;display:flex;gap:8px;align-items:center}
 .msub select{width:auto}
 .chk{display:flex;gap:8px;align-items:center}
@@ -606,7 +607,7 @@ function openEditor(src,id){
       const el=h('input',{type:'url',id:'e-link-'+i,inputmode:'url',placeholder:'https://…',value:u,autocomplete:'off','aria-label':'링크 '+(i+1),oninput:e=>{links[i]=e.target.value}});
       el.addEventListener('paste',e=>{const t=(e.clipboardData||{}).getData&&e.clipboardData.getData('text');if(t&&absorbLink(t,i)){e.preventDefault();el.value=links[i]}});
       el.addEventListener('change',()=>{if(absorbLink(el.value,i)) el.value=links[i]});
-      return h('div',{class:'xrow'},el,links.length>1?h('button',{type:'button',class:'btn','aria-label':'이 링크 빼기',onclick:()=>{links.splice(i,1);drawLinks()}},'×'):null);
+      return h('div',{class:'lrow'},el,links.length>1?h('button',{type:'button',class:'btn','aria-label':'이 링크 빼기',onclick:()=>{links.splice(i,1);drawLinks()}},'×'):null);
     }));
   }
   function absorbLink(text,i){
@@ -712,7 +713,7 @@ function openEditor(src,id){
       h('div',{class:'chips'},h('button',{type:'button',class:'btn',onclick:()=>{links.push('');drawLinks();const el=$('#e-link-'+(links.length-1));if(el) el.focus()}},'+ 링크 추가'))),
     fld('이름','name',F.name),
     fld('판매처 · 구매처','store',storeBox,
-      h('div',{class:'xrow'},F.store,h('button',{type:'button',class:'btn',onclick:()=>{addStore(F.store.value);F.store.value=''}},'추가')),storeHint),
+      h('div',{class:'lrow'},F.store,h('button',{type:'button',class:'btn',onclick:()=>{addStore(F.store.value);F.store.value=''}},'추가')),storeHint),
     fld('카테고리','category',pickChips('category',catOpts),F.category),
     ownedRow,extraRow,
     h('div',{class:'row'},fld('평소 할인가','salePrice',F.salePrice),fld('통화','currency',F.currency)),
