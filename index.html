@@ -270,20 +270,31 @@ function tagColorMatch(x,cols){
   if(ui.colors.length&&!ui.colors.some(n=>cols.includes(n))) return false;
   return true;
 }
-function colorEditor(list,getUrls,prefix){
+function colorEditor(list,getUrls,prefix,getAuto){
   const box=h('div',{class:'meas'});
+  const autoList=()=>{const out=[],seen=new Set();for(const c of (getAuto?getAuto():[])){if(seen.has(c.n)) continue;seen.add(c.n);out.push(c)}return out};
   function draw(){
-    box.replaceChildren(...list.map((c,i)=>{
-      const sl=h('select',{id:prefix+'-n-'+i,'aria-label':'색상 이름',onchange:e=>{c.n=e.target.value}},COLORS.map(x=>h('option',{value:x[0]},x[0])));sl.value=c.n;
-      return h('div',{class:'crow'},swatch(c),sl,h('button',{type:'button',class:'btn','aria-label':'이 색상 빼기',onclick:()=>{list.splice(i,1);draw()}},'×'));
-    }));
-    box.hidden=!list.length;
+    const auto=autoList(),names=new Set(auto.map(c=>c.n)),seen=new Set(names);
+    box.replaceChildren(
+      ...auto.map(c=>h('div',{class:'crow'},swatch(c),h('span',{},c.n),h('span',{class:'hint'},'연결한 옷'))),
+      ...list.map((c,i)=>{
+        if(getAuto){if(seen.has(c.n)) return null;seen.add(c.n)}
+        const sl=h('select',{id:prefix+'-n-'+i,'aria-label':'색상 이름',onchange:e=>{c.n=e.target.value;draw()}},COLORS.map(x=>h('option',{value:x[0]},x[0])));sl.value=c.n;
+        return h('div',{class:'crow'},swatch(c),sl,h('button',{type:'button',class:'btn','aria-label':'이 색상 빼기',onclick:()=>{list.splice(i,1);draw()}},'×'));
+      }).filter(Boolean));
+    box.hidden=!box.children.length;
+  }
+  function addColor(c){
+    if(getAuto&&(autoList().some(x=>x.n===c.n)||list.some(x=>x.n===c.n))){toast(c.n+'은(는) 이미 들어 있어요');return}
+    list.push(c);draw();
   }
   draw();
-  return h('div',{class:'fld'},h('span',{class:'lb'},'색상'),box,
-    h('div',{class:'chips'},h('button',{type:'button',class:'btn',onclick:()=>{const u=getUrls();if(!u.length){toast('먼저 사진을 넣어 주세요');return}openDropper(u,hex=>{list.push({n:nearestColor(hex),hex});draw()})}},'사진에서 색 찍기')),
-    h('div',{class:'chips'},COLORS.map(([n,x])=>h('button',{type:'button',class:'chip','aria-label':n+' 추가',onclick:()=>{list.push({n,hex:x});draw()}},h('span',{class:'sw sm',style:'background:'+x}),n))),
-    h('span',{class:'hint'},'사진에서 찍으면 실제 색이 그대로 저장되고, 가장 가까운 일반 색 이름이 자동으로 붙어요. 이름은 바꿀 수 있어요. 색상표를 눌러 바로 추가할 수도 있어요.'));
+  const el=h('div',{class:'fld'},h('span',{class:'lb'},'색상'),box,
+    h('div',{class:'chips'},h('button',{type:'button',class:'btn',onclick:()=>{const u=getUrls();if(!u.length){toast('먼저 사진을 넣어 주세요');return}openDropper(u,hex=>addColor({n:nearestColor(hex),hex}))}},'사진에서 색 찍기')),
+    h('div',{class:'chips'},COLORS.map(([n,x])=>h('button',{type:'button',class:'chip','aria-label':n+' 추가',onclick:()=>addColor({n,hex:x})},h('span',{class:'sw sm',style:'background:'+x}),n))),
+    h('span',{class:'hint'},getAuto?'연결한 옷의 색은 자동으로 들어가요. 같은 이름의 색은 한 번만 보여요. 옷에 없는 색만 사진에서 찍거나 색상표에서 추가하세요.':'사진에서 찍으면 실제 색이 그대로 저장되고, 가장 가까운 일반 색 이름이 자동으로 붙어요. 이름은 바꿀 수 있어요. 색상표를 눌러 바로 추가할 수도 있어요.'));
+  el.redraw=draw;
+  return el;
 }
 function openDropper(urls,onPick){
   let pend=null;
@@ -485,7 +496,7 @@ function renderFilters(){
 function renderPanel(){
   const p=$('#fpanel');p.hidden=!ui.panel;if(!ui.panel) return;
   const look=ui.tab==='look',tags=allTags();
-  const cols=[...new Set((look?looks.flatMap(l=>[...colorsOf(l),...linked(l).flatMap(colorsOf)]):items.flatMap(colorsOf)).map(c=>c.n))];
+  const cols=[...new Set((look?looks.flatMap(lookColors):items.flatMap(colorsOf)).map(c=>c.n))];
   const tog=(arr,v)=>arr.includes(v)?arr.filter(x=>x!==v):[...arr,v];
   p.replaceChildren(
     h('div',{class:'xrow'},h('span',{class:'lb'},'태그'),
@@ -516,6 +527,7 @@ function priceEl(it){
 }
 function markLabels(it){return (it.marks||[]).map(k=>(MARKS.find(m=>m[0]===k)||[])[1]).filter(Boolean)}
 const linked=l=>(l.itemIds||[]).map(id=>items.find(i=>i.id===id)).filter(Boolean);
+const lookColors=l=>{const out=[],seen=new Set();for(const c of [...linked(l).flatMap(colorsOf),...colorsOf(l)]){if(seen.has(c.n)) continue;seen.add(c.n);out.push(c)}return out};
 const itemLooks=it=>looks.filter(l=>(l.itemIds||[]).includes(it.id));
 const lookTemps=l=>[...(l.temps||[]),...linked(l).flatMap(i=>i.temps||[])];
 const itemTemps=it=>[...(it.temps||[]),...itemLooks(it).flatMap(l=>l.temps||[])];
@@ -525,9 +537,9 @@ function itemFace(i){
 }
 function renderLooks(){
   const q=ui.q.trim().toLowerCase();
-  const list=looks.filter(l=>tempMatch({temps:lookTemps(l)},true)&&tagColorMatch(l,[...colorsOf(l),...linked(l).flatMap(colorsOf)].map(c=>c.n))).filter(l=>!q||[l.memo,(l.tags||[]).join(' '),linked(l).map(i=>i.name).join(' ')].join(' ').toLowerCase().includes(q)).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
+  const list=looks.filter(l=>tempMatch({temps:lookTemps(l)},true)&&tagColorMatch(l,lookColors(l).map(c=>c.n))).filter(l=>!q||[l.memo,(l.tags||[]).join(' '),linked(l).map(i=>i.name).join(' ')].join(' ').toLowerCase().includes(q)).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
   $('#grid').replaceChildren(...list.map(l=>{
-    const n=linked(l).length,tg=l.tags||[],ph=lookPhotos(l),tt=tempText(l.temps),cs=[...colorsOf(l),...linked(l).flatMap(colorsOf)];
+    const n=linked(l).length,tg=l.tags||[],ph=lookPhotos(l),tt=tempText(l.temps),cs=lookColors(l);
     return h('button',{type:'button',class:'card',onclick:()=>openLookDetail(l.id)},
       h('div',{class:'cover'},ph[0]?h('img',{src:mediaUrl(ph[0]),alt:l.memo||'코디 사진',loading:'lazy'}):'사진 없음',n?h('span',{class:'where'},'내 옷 '+n):null,ph.length>1?h('span',{class:'cnt'},'+'+(ph.length-1)):null),
       (l.memo||tg.length||tt||cs.length)?h('div',{class:'body'},l.memo?h('span',{class:'nm'},l.memo):null,cs.length?swatchRow(cs,true):null,tt?h('span',{class:'loc'},tt):null,tg.length?h('span',{class:'loc'},tg.map(t=>'#'+t).join(' ')):null):null);
@@ -951,9 +963,7 @@ function openLookDetail(id){
     lookPhotos(l).length?h('div',{class:'gallery'},lookPhotos(l).map(m=>h('img',{src:mediaUrl(m),alt:l.memo||'코디 사진'}))):null,
     tempText(l.temps)?h('p',{class:'price',style:'margin:0'},tempText(l.temps)):null,
     tempText(li.flatMap(i=>i.temps||[]))?h('div',{class:'xrow'},h('span',{class:'hint'},'연결한 옷 기온'),h('span',{class:'price'},tempText(li.flatMap(i=>i.temps||[])))):null,
-    (colorsOf(l).length||li.some(i=>colorsOf(i).length))?h('div',{class:'fld'},h('span',{class:'lb'},'색 조합'),
-      colorsOf(l).length?swatchRow(colorsOf(l)):null,
-      li.some(i=>colorsOf(i).length)?h('div',{class:'xrow'},h('span',{class:'hint'},'연결한 옷'),swatchRow(li.flatMap(colorsOf))):null):null,
+    lookColors(l).length?h('div',{class:'fld'},h('span',{class:'lb'},'색 조합'),swatchRow(lookColors(l))):null,
     l.memo?h('p',{class:'memo'},l.memo):null,
     tg.length?h('p',{class:'hint',style:'margin:0'},tg.map(t=>'#'+t).join(' ')):null,
     h('div',{class:'fld'},h('span',{class:'lb'},'연결한 내 옷'),
@@ -993,16 +1003,17 @@ function openLookEditor(src){
     const list=items.filter(i=>sel.has(i.id)||!q||[i.name,i.store,i.category,(i.tags||[]).join(' ')].join(' ').toLowerCase().includes(q))
       .sort((a,b)=>(sel.has(b.id)-sel.has(a.id))||((b.updatedAt||0)-(a.updatedAt||0))).slice(0,40);
     plist.replaceChildren(...(list.length?list.map(i=>h('label',{class:'prow'},
-      h('input',{type:'checkbox',checked:sel.has(i.id),'aria-label':'연결',onchange:e=>{if(e.target.checked) sel.add(i.id);else sel.delete(i.id)}}),itemFace(i)))
+      h('input',{type:'checkbox',checked:sel.has(i.id),'aria-label':'연결',onchange:e=>{if(e.target.checked) sel.add(i.id);else sel.delete(i.id);colorEd.redraw()}}),itemFace(i)))
       :[h('span',{class:'hint'},items.length?'찾는 옷이 없어요':'아직 기록한 옷이 없어요')]));
   }
+  const colorEd=colorEditor(colors,()=>picks.map(mediaUrl),'l-c',()=>[...sel].map(k=>items.find(i=>i.id===k)).filter(Boolean).flatMap(colorsOf));
   const body=h('div',{class:'bd gut'},
     h('div',{class:'fld'},h('span',{class:'lb'},'코디 사진'),strip,
       h('div',{class:'chips'},
         filePick('사진 넣기',{accept:'image/*',multiple:true},f=>api.addFiles(f))),
       pasteBox(b=>api.crop(b)),
       h('span',{class:'hint'},'넣은 사진의 자르기를 누르면 원하는 부분만 남길 수 있어요. 여러 장을 넣을 수 있고 첫 사진이 대표로 보여요.')),
-    colorEditor(colors,()=>picks.map(mediaUrl),'l-c'),
+    colorEd,
     tempEditor(temps,'l-t'),
     h('div',{class:'fld'},h('label',{for:'l-memo'},'메모'),memo),
     h('div',{class:'fld'},h('label',{for:'l-tags'},'태그'),tagOpts.length?h('div',{class:'chips'},tagOpts.map(t=>h('button',{type:'button',class:'chip',onclick:()=>{const cur=tags.value.split(',').map(s=>s.trim()).filter(Boolean);if(!cur.includes(t)) tags.value=[...cur,t].join(', ')}},'#'+t))):null,tags),
