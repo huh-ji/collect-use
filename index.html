@@ -160,6 +160,9 @@ input[type=number]{background:var(--surface);border:1px solid var(--line);border
 .panel>.bd>*{flex-shrink:0}
 .xrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .xrow .chip{min-height:26px;padding:2px 10px;font-size:12px}
+.chip[data-s="1"]{background:var(--sunken);border-color:var(--muted);color:var(--ink);font-weight:600}
+.chip[data-s="2"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent);font-weight:600}
+.kv a.link{font-weight:400}
 .msub{grid-column:1/-1;display:flex;gap:8px;align-items:center}
 .msub select{width:auto}
 .chk{display:flex;gap:8px;align-items:center}
@@ -212,6 +215,9 @@ const fmtN=n=>String(Math.round(n*10)/10);
 function pair(m){const n=parseFloat(m.v);if(!GIRTH.includes(m.k)||!isFinite(n)) return null;return m.t==='round'?{flat:n/2,round:n}:{flat:n,round:n*2}}
 const measText=m=>{const p=pair(m);return p?'단면 '+fmtN(p.flat)+' (둘레 '+fmtN(p.round)+')':m.v};
 const normMeas=m=>{const c=canonPart(m.k);return {k:c.k,v:String(m.v??''),t:m.t||c.t}};
+const storesOf=it=>it.stores&&it.stores.length?it.stores:(it.store?[it.store]:[]);
+const linksOf=it=>(it.links&&it.links.length?it.links:(it.link?[it.link]:[])).filter(safeUrl);
+const allStores=()=>[...new Set(items.flatMap(storesOf))];
 const hasMeas=it=>(it.measures||[]).some(m=>String(m.v||'').trim());
 const PART_SETS={top:['어깨','가슴','소매','소매통','총장','밑단'],bottom:['허리','엉덩이','허벅지','밑위','밑단','총장'],dress:['어깨','가슴','허리','엉덩이','소매','총장']};
 function partsFor(cat){
@@ -348,13 +354,13 @@ function visible(){
   const q=ui.q.trim().toLowerCase();
   return items.filter(it=>{
     if(ui.tab!=='all'&&(it.status||'wish')!==ui.tab) return false;
-    if(ui.store&&it.store!==ui.store) return false;
+    if(ui.store&&!storesOf(it).includes(ui.store)) return false;
     if(ui.cat&&it.category!==ui.cat) return false;
     if(ui.tag&&!(it.tags||[]).includes(ui.tag)) return false;
     if(ui.meas&&!hasMeas(it)) return false;
     if(!tempMatch(it,false)) return false;
     if(ui.mark&&!(it.marks||[]).includes(ui.mark)) return false;
-    if(q){const hay=[it.name,it.localName,it.place,it.size,it.fit,it.store,it.category,it.memo,(it.tags||[]).join(' ')].join(' ').toLowerCase();if(!hay.includes(q)) return false}
+    if(q){const hay=[it.name,it.localName,it.place,it.size,it.fit,storesOf(it).join(' '),it.category,it.memo,(it.tags||[]).join(' ')].join(' ').toLowerCase();if(!hay.includes(q)) return false}
     return true;
   }).sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0));
 }
@@ -366,7 +372,7 @@ function renderTabs(){
 }
 let filtersBuilt='';
 function renderFilters(){
-  const stores=used('store'),cats=used('category'),tags=[...new Set(items.flatMap(i=>i.tags||[]))],hasAdj=items.some(i=>i.orderAdj);
+  const stores=allStores(),cats=used('category'),tags=[...new Set(items.flatMap(i=>i.tags||[]))],hasAdj=items.some(i=>i.orderAdj);
   const sig=JSON.stringify([stores,cats,tags,ui.mark,hasAdj,ui.adj,ui.meas,ui.tab==='look']);
   if(sig===filtersBuilt) return; filtersBuilt=sig;
   const sel=(id,label,opts,key)=>{const s=h('select',{id,'aria-label':label,onchange:e=>{ui[key]=e.target.value;renderList()}},h('option',{value:''},label+' 전체'),opts.map(o=>h('option',{value:o},o)));s.value=opts.includes(ui[key])?ui[key]:'';return s};
@@ -385,7 +391,8 @@ function cover(it){
   if(!m) c.append('사진 없음');
   else if(m.type==='video') c.append(h('video',{src:mediaUrl(m)+'#t=0.1',preload:'metadata',muted:true,playsinline:true}));
   else c.append(h('img',{src:mediaUrl(m),alt:'',loading:'lazy'}));
-  if(it.store) c.append(h('span',{class:'where'},it.store));
+  const ss=storesOf(it),main=it.status==='owned'?(it.store||ss[0]):ss[0];
+  if(main) c.append(h('span',{class:'where'},main+(ss.length>1?' +'+(ss.length-1):'')));
   if((it.media||[]).length>1) c.append(h('span',{class:'cnt'},'+'+((it.media.length)-1)));
   return c;
 }
@@ -457,7 +464,11 @@ function openDetail(id){
   const rows=[];
   const add=(k,v)=>{if(v!=null&&v!=='') rows.push(h('dt',{},k),h('dd',{},v))};
   add('상태',it.status==='owned'?'소장':'위시');
-  add('구매처',it.store); add('카테고리',it.category); add('여행지',it.place);
+  const ss=storesOf(it);
+  if(it.status==='owned'){add('구매처',it.store);add(it.store?'다른 판매처':'판매처',ss.filter(s=>s!==it.store).join(', '))}
+  else add('판매처',ss.join(', '));
+  linksOf(it).forEach(u=>add('링크',h('a',{class:'link',href:u,target:'_blank',rel:'noopener noreferrer'},u)));
+  add('카테고리',it.category); add('여행지',it.place);
   
   if(it.status==='owned'){ add('구매 가격',it.boughtPrice!=null?h('span',{class:'price'},money(it.boughtPrice,it.currency)):null); if(it.extraOn&&it.extraDisc&&it.boughtPrice!=null) add('추가 할인 전',h('div',{class:'xrow'},h('span',{class:'price'},money(it.boughtPrice+it.extraDisc,it.currency)),h('span',{class:'hint'},'추가 할인 '+money(it.extraDisc,it.currency)))); if(it.qty>1) add('수량',it.qty+'개'); add('구매일',it.boughtDate); }
   add('평소 할인가',it.salePrice!=null?h('span',{class:'price'},money(it.salePrice,it.currency)):null);
@@ -470,7 +481,7 @@ function openDetail(id){
       :h('img',{src:mediaUrl(m),alt:it.name||''}))):null,
     h('p',{class:'title-lg'},it.name||it.localName||'(이름 없음)'),
     it.localName?h('div',{class:'local',lang:'und'},h('span',{},it.localName),h('button',{type:'button',class:'chip',onclick:()=>{navigator.clipboard.writeText(it.localName).then(()=>toast('현지 이름을 복사했어요'),()=>toast('복사하지 못했어요. 글자를 길게 눌러 복사해 주세요'))}},'복사')):null,
-    link?h('a',{class:'link',href:link,target:'_blank',rel:'noopener noreferrer'},'상품 페이지 열기 ↗'):null,
+    
     h('dl',{class:'kv'},rows),
     hasMeas(it)?h('div',{class:'fld'},h('span',{class:'lb'},'실측 (cm)'),h('dl',{class:'kv'},it.measures.filter(m=>String(m.v||'').trim()).flatMap(m=>[h('dt',{},m.k||'-'),h('dd',{class:'price'},measText(m))]))):null,
     it.memo?h('p',{class:'memo'},it.memo):null,
@@ -484,7 +495,7 @@ function openDetail(id){
     try{await removeItem(it);s.close();toast('삭제했어요')}catch(e){del.disabled=false;toast('삭제하지 못했어요 ('+(e&&e.code||'오류')+')')}
   }},'삭제');
   const ft=h('div',{class:'ft gut'},del,h('span',{class:'grow'}),
-    it.status!=='owned'?h('button',{type:'button',class:'btn',onclick:()=>{s.close();openEditor(Object.assign({},it,{status:'owned'}),it.id)}},'구매 완료로 옮기기'):null,
+    it.status!=='owned'?h('button',{type:'button',class:'btn',onclick:()=>{s.close();openEditor(Object.assign({},it,{status:'owned',stores:storesOf(it),store:''}),it.id)}},'구매 완료로 옮기기'):null,
     h('button',{type:'button',class:'btn primary',onclick:()=>{s.close();openEditor(it,it.id)}},'수정'));
   const s=openSheet(it.name||'기록',body,ft);
 }
@@ -564,7 +575,11 @@ function openEditor(src,id){
     exNote.textContent=!exOn?'':(b!=null?'추가 할인 전 '+money(b+x,F.currency?F.currency.value:d.currency):'쿠폰·적립금·포인트로 더 할인받은 금액');
   }
   exInp.addEventListener('input',syncEx);F.boughtPrice.addEventListener('input',syncEx);
-  function syncStatus(){statusBtns.querySelectorAll('button').forEach(b=>b.setAttribute('aria-selected',String(b.dataset.k===d.status)));ownedRow.hidden=extraRow.hidden=d.status!=='owned'}
+  function syncStatus(){statusBtns.querySelectorAll('button').forEach(b=>b.setAttribute('aria-selected',String(b.dataset.k===d.status)));ownedRow.hidden=extraRow.hidden=d.status!=='owned';
+    const ks=Object.keys(sel),own=d.status==='owned';
+    if(own&&ks.length===1) sel[ks[0]]=2;
+    storeHint.textContent=own?'한 번 누르면 판매처(✓), 한 번 더 누르면 실제로 산 곳(구매)으로 표시돼요. 산 곳은 한 곳만 지정돼요.':'파는 곳을 여러 개 고를 수 있어요.';
+    drawStores()}
 
   const strip=h('div',{class:'strip'});
   function drawStrip(){
@@ -584,16 +599,25 @@ function openEditor(src,id){
   }
   const api={addFiles,crop:file=>openCropper(file,b=>{addBlob(b,'image');if(!F.name.value.trim()) readInfo(b)}),readSize:f=>readSize(f)};
 
-  inp('link',{type:'url',inputmode:'url',placeholder:'https://…'});
-  function absorbLink(text){
+  const links=(d.links&&d.links.length?d.links.slice():[d.link||'']);
+  const linkBox=h('div',{class:'meas'});
+  function drawLinks(){
+    linkBox.replaceChildren(...links.map((u,i)=>{
+      const el=h('input',{type:'url',id:'e-link-'+i,inputmode:'url',placeholder:'https://…',value:u,autocomplete:'off','aria-label':'링크 '+(i+1),oninput:e=>{links[i]=e.target.value}});
+      el.addEventListener('paste',e=>{const t=(e.clipboardData||{}).getData&&e.clipboardData.getData('text');if(t&&absorbLink(t,i)){e.preventDefault();el.value=links[i]}});
+      el.addEventListener('change',()=>{if(absorbLink(el.value,i)) el.value=links[i]});
+      return h('div',{class:'xrow'},el,links.length>1?h('button',{type:'button',class:'btn','aria-label':'이 링크 빼기',onclick:()=>{links.splice(i,1);drawLinks()}},'×'):null);
+    }));
+  }
+  function absorbLink(text,i){
     const p=parseShared(text); if(!p.link) return false;
-    F.link.value=p.link;
-    if(!F.store.value){const s=storeFromUrl(p.link);if(s) F.store.value=s}
+    links[i]=p.link;
+    {const s=storeFromUrl(p.link);if(s) addStore(s)}
     if(!F.name.value&&p.name) F.name.value=p.name.slice(0,120);
     return true;
   }
-  F.link.addEventListener('paste',e=>{const t=(e.clipboardData||{}).getData&&e.clipboardData.getData('text');if(t&&absorbLink(t)) e.preventDefault()});
-  F.link.addEventListener('change',()=>absorbLink(F.link.value));
+  
+  
   inp('name',{placeholder:'상품 이름'});
   inp('size',{placeholder:'예: M, 95, 27'}); inp('fit',{placeholder:'직접 입력'});
   const measBox=h('div',{class:'meas'}),sizePick=h('div',{class:'chips'});
@@ -637,7 +661,7 @@ function openEditor(src,id){
       const own=d.status==='owned',tgt=own?F.boughtPrice:F.salePrice;
       if(isFinite(pr)&&pr>0&&!tgt.value.trim()){tgt.value=pr;syncEx();got.push(own?'구매 가격':'평소 할인가')}
       if(CUR[r.currency]) F.currency.value=r.currency;
-      if(r.store&&!F.store.value){F.store.value=String(r.store).slice(0,40);got.push('구매처')}
+      if(r.store&&!Object.keys(sel).length){addStore(String(r.store).slice(0,40));got.push('판매처')}
       if(got.length) toast(got.join(' · ')+' 칸을 사진에서 읽어 채웠어요. 맞는지 확인해 주세요');
     }catch(e){
       const code=e&&e.code;
@@ -646,7 +670,27 @@ function openEditor(src,id){
     }
     infoSt.textContent='';
   }
-  inp('store',{placeholder:'직접 입력'}); inp('category',{placeholder:'직접 입력'});
+  inp('store',{placeholder:'목록에 없는 곳 직접 입력'});
+  const sel={};storesOf(d).forEach(s=>{sel[s]=1});if(d.status==='owned'&&d.store) sel[d.store]=2;
+  const storeBox=h('div',{class:'chips'}),storeHint=h('span',{class:'hint'});
+  function drawStores(){
+    const opts=[...new Set([...STORES.map(s=>s[0]),...allStores(),...Object.keys(sel)])],own=d.status==='owned';
+    storeBox.replaceChildren(...opts.map(o=>{
+      const s=own?(sel[o]||0):Math.min(sel[o]||0,1);
+      return h('button',{type:'button',class:'chip','data-s':String(s),'aria-pressed':String(s>0),onclick:()=>{
+        const cur=sel[o]||0;let nx;
+        if(d.status==='owned'){nx=(cur+1)%3;if(nx===2) for(const k in sel) if(sel[k]===2) sel[k]=1}
+        else nx=cur?0:1;
+        if(nx) sel[o]=nx;else delete sel[o];
+        drawStores();
+      }},(s===2?'구매 · ':s===1?'✓ ':'')+o);
+    }));
+  }
+  function addStore(name){
+    name=String(name||'').trim();if(!name) return;
+    if(!sel[name]) sel[name]=(d.status==='owned'&&!Object.values(sel).includes(2))?2:1;
+    drawStores();
+  } inp('category',{placeholder:'직접 입력'});
   F.category.addEventListener('change',()=>{d.measures=arrangeMeas(d.measures.filter(m=>m.v||(!m.std&&m.k)),partsFor(F.category.value));drawMeas()});
   inp('salePrice',{inputmode:'decimal',placeholder:'자주 보이는 할인 가격',value:d.salePrice??''});
   inp('tags',{placeholder:'쉼표로 구분 · 예: 여름, 린넨',value:(d.tags||[]).join(', ')});
@@ -664,9 +708,11 @@ function openEditor(src,id){
         filePick('동영상 넣기',{accept:'video/*',multiple:true},f=>api.addFiles(f))),
       pasteBox(b=>api.crop(b)),
       infoSt,h('span',{class:'hint'},'이름 칸이 비어 있으면 넣은 사진에서 이름과 가격을 읽어 빈 칸에 채워요. 넣은 사진의 자르기를 누르면 원하는 부분만 남길 수 있어요. 한 캡쳐에서 여러 부분이 필요하면 같은 캡쳐를 다시 넣어 각각 잘라 주세요. 버튼을 눌러도 사진 선택 창이 안 열리는 앱에서는 같은 주소를 Chrome에서 열거나, 복사한 사진을 위 칸에 붙여넣어 주세요. 동영상은 파일당 20MB까지.')),
-    fld('링크','link',F.link),
+    h('div',{class:'fld'},h('label',{for:'e-link-0'},'링크'),linkBox,
+      h('div',{class:'chips'},h('button',{type:'button',class:'btn',onclick:()=>{links.push('');drawLinks();const el=$('#e-link-'+(links.length-1));if(el) el.focus()}},'+ 링크 추가'))),
     fld('이름','name',F.name),
-    fld('구매처','store',pickChips('store',storeOpts),F.store),
+    fld('판매처 · 구매처','store',storeBox,
+      h('div',{class:'xrow'},F.store,h('button',{type:'button',class:'btn',onclick:()=>{addStore(F.store.value);F.store.value=''}},'추가')),storeHint),
     fld('카테고리','category',pickChips('category',catOpts),F.category),
     ownedRow,extraRow,
     h('div',{class:'row'},fld('평소 할인가','salePrice',F.salePrice),fld('통화','currency',F.currency)),
@@ -684,11 +730,11 @@ function openEditor(src,id){
   const origClose=s.close;
   const closeAll=()=>{activeEditor=null;origClose()};
   s.sheet.querySelector('.hd .btn').onclick=closeAll;
-  activeEditor=api; syncStatus(); drawStrip(); drawMeas(); syncEx();
+  activeEditor=api; syncStatus(); drawStrip(); drawMeas(); syncEx(); drawLinks();
 
   async function onSave(){
     const name=F.name.value.trim();
-    if(!name&&!d.media.length&&!F.link.value.trim()){toast('이름, 링크, 사진 중 하나는 넣어 주세요');return}
+    if(!name&&!d.media.length&&!links.some(u=>u.trim())){toast('이름, 링크, 사진 중 하나는 넣어 주세요');return}
     save.disabled=true;save.textContent='저장 중…';
     try{
       const media=[];
@@ -699,7 +745,10 @@ function openEditor(src,id){
         else throw {code:'no_assets'};
       }
       const owned=d.status==='owned';
-      const data={status:d.status,name,link:F.link.value.trim(),store:F.store.value.trim(),category:F.category.value.trim(),
+      const lks=[...new Set(links.map(u=>u.trim()).filter(Boolean))];
+      if(F.store.value.trim()){addStore(F.store.value);F.store.value=''}
+      const sts=Object.keys(sel),bought=sts.find(k=>sel[k]===2)||'';
+      const data={status:d.status,name,link:lks[0]||'',links:lks,stores:sts,store:owned?bought:(sts[0]||''),category:F.category.value.trim(),
         currency:F.currency.value,salePrice:num(F.salePrice.value),boughtPrice:owned?num(F.boughtPrice.value):null,boughtDate:owned?F.boughtDate.value:'',qty:owned?(num(F.qty.value)||1):1,orderAdj:null,extraDisc:owned?(num(exInp.value)||0):0,extraOn:owned&&exOn,orderId:d.orderId||null,
         marks:[],tags:[...new Set(F.tags.value.split(/[,#]/).map(t=>t.trim()).filter(Boolean))],memo:F.memo.value.trim(),media,temps:cleanTemps(d.temps),size:F.size.value.trim(),fit:F.fit.value.trim(),
         measures:d.measures.map(m=>({k:canonPart(m.k).k,v:String(m.v).trim(),t:m.t||'flat'})).filter(m=>m.k&&m.v),
@@ -866,7 +915,7 @@ async function reviewOrder(r,file){
   const fin=h('p',{class:'fin'});
   const outs=[];
   let st=ui.tab==='wish'?'wish':'owned';
-  const catOpts=[...new Set([...CATS,...used('category')])],storeOpts=[...new Set([...STORES.map(s=>s[0]),...used('store')])],tagOpts=[...new Set(items.flatMap(i=>i.tags||[]))].slice(0,14);
+  const catOpts=[...new Set([...CATS,...used('category')])],storeOpts=[...new Set([...STORES.map(s=>s[0]),...allStores()])],tagOpts=[...new Set(items.flatMap(i=>i.tags||[]))].slice(0,14);
   function recalc(){
     const act=rows.filter(x=>x.on),t=num(total.value);
     const sum0=act.reduce((a,x)=>a+x.price,0),ex=exOn.checked?(num(exAmt.value)||0):0;
@@ -914,7 +963,7 @@ async function reviewOrder(r,file){
       for(const [i,x] of act.entries()){
         let media=[];
         if(x.blob){if(assets){const u=await assets.upload(x.blob,{type:'image/jpeg'});media=[{id:u.id,type:'image'}]}else if(local) media=[{url:x.url,type:'image'}]}
-        await persist(null,{status:st,name:x.name.trim(),link:'',store:store.value.trim(),category:x.cat||cat.value.trim(),currency:cur,salePrice:st==='wish'?x.price:null,
+        await persist(null,{status:st,name:x.name.trim(),link:'',links:[],stores:store.value.trim()?[store.value.trim()]:[],store:store.value.trim(),category:x.cat||cat.value.trim(),currency:cur,salePrice:st==='wish'?x.price:null,
         boughtPrice:st==='owned'?x.price+(x.adj||0):null,boughtDate:st==='owned'?date.value:'',qty:x.qty,orderAdj:null,extraDisc:st==='owned'?Math.max(0,-(x.adj||0)):0,orderId:st==='owned'?orderId:null,marks:[],tags:tg,memo:'',media,createdAt:now+i,updatedAt:now+i});
         x.done=true;
       }
