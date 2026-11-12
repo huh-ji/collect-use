@@ -1,4 +1,4 @@
-<title>Collect Use</title>
+<title>쇼핑노트</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
 <style>
@@ -41,10 +41,17 @@ header.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background
 .tabs button{flex:1;border:0;background:none;padding:7px 4px;border-radius:8px;font-weight:600;color:var(--muted)}
 .tabs button[aria-selected="true"]{background:var(--surface);color:var(--ink)}
 .tabs b{font-family:var(--mono);font-size:12px;font-weight:500;margin-left:4px}
-.filters{display:flex;gap:8px;overflow-x:auto;padding-bottom:2px;scrollbar-width:none}
+.frow{display:flex;gap:8px;align-items:flex-start}
+.filters{flex:1;min-width:0;display:flex;gap:8px;overflow:hidden;flex-wrap:nowrap;padding-bottom:2px}
+.filters.open{flex-wrap:wrap}
+#f-more{flex:none;font-weight:700;letter-spacing:1px}
+#tabs{overflow-x:auto;scrollbar-width:none}
+#tabs::-webkit-scrollbar{display:none}
+#tabs button{flex:1 0 auto;padding-inline:12px;white-space:nowrap}
+#tabs .tabadd{flex:none;font-weight:700}
 .filters::-webkit-scrollbar{display:none}
 .filters>*{flex:none}
-.filters input[type=search]{width:150px}
+.filters input[type=search]{width:110px}
 
 input[type=text],input[type=search],input[type=url],input[type=date],select,textarea{
   background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:8px 10px;min-height:38px;max-width:100%}
@@ -186,13 +193,13 @@ img.drop{max-width:100%;cursor:crosshair;border-radius:8px;touch-action:manipula
 </style>
 
 <header class="top gut"><div class="inner">
-  <div class="brand"><h1>Collect <span>Use</span></h1><small>위시 · 소장 기록</small></div>
+  <div class="brand"><h1>쇼핑<span>노트</span></h1><small>위시 · 소장 기록</small></div>
   <div class="quick">
     <input type="text" id="quick-link" placeholder="복사한 상품 링크 붙여넣기" autocomplete="off" enterkeyhint="go">
     <button class="btn primary" id="quick-go" type="button">기록</button>
   </div>
   <div class="tabs" role="tablist" id="tabs"></div>
-  <div class="filters" id="filters"></div>
+  <div class="frow"><div class="filters" id="filters"></div><button class="chip" id="f-more" type="button" aria-label="필터 더 보기" aria-expanded="false" hidden>∷</button></div>
   <div class="fpanel" id="fpanel" hidden></div>
 </div></header>
 
@@ -251,7 +258,7 @@ const swatchRow=(list,sm)=>h('div',{class:'swrow'},list.map(c=>sm?swatch(c,true)
 const tagsOf=arr=>[...new Set(arr.flatMap(i=>i.tags||[]))].sort((a,b)=>a.localeCompare(b,'ko'));
 const allTags=()=>tagsOf(ui.tab==='look'?looks:items);
 const shortUrl=u=>{try{return new URL(u).hostname.replace(/^www\./,'')}catch(e){return '링크'}};
-let prefs={};
+let prefs={},prefsLoaded=false;
 const optList=kind=>{
   const hid=prefs['hide_'+kind]||[];
   const base=kind==='stores'?[...STORES.map(s=>s[0]),...allStores()]:[...CATS,...used('category')];
@@ -262,6 +269,73 @@ async function setHidden(kind,name,hide){
   if(nx.length===cur.length) return;
   prefs=Object.assign({},prefs,{['hide_'+kind]:nx});
   if(db&&!local){try{await db.doc('meta/prefs').set(prefs)}catch(e){toast('목록 변경을 저장하지 못했어요')}}
+}
+const customTab=()=>ui.tab.startsWith('c:')?((prefs.tabs||[]).find(t=>'c:'+t.id===ui.tab)||null):null;
+function fixedMatch(it,f){
+  if(f.status&&f.status!=='all'&&(it.status||'wish')!==f.status) return false;
+  if(f.cat&&it.category!==f.cat) return false;
+  if(f.store&&!storesOf(it).includes(f.store)) return false;
+  const tg=it.tags||[],ft=f.tags||[];
+  if(ft.length&&!(f.tagMode==='and'?ft.every(t=>tg.includes(t)):ft.some(t=>tg.includes(t)))) return false;
+  return true;
+}
+const descTab=f=>[f.status==='wish'?'위시':f.status==='owned'?'소장':'',f.cat,f.store,(f.tags||[]).map(t=>'#'+t).join(f.tagMode==='and'?' + ':' / ')].filter(Boolean).join(' · ')||'조건 없음';
+async function saveTabs(tabs){
+  prefs=Object.assign({},prefs,{tabs});
+  if(db&&!local){try{await db.doc('meta/prefs').set(prefs)}catch(e){toast('탭을 저장하지 못했어요')}}
+}
+function tabDefaults(){
+  const t=customTab();if(!t) return null;const f=t.f,tg=f.tags||[];
+  return {status:f.status==='owned'?'owned':'wish',category:f.cat||'',tags:(f.tagMode==='and'||tg.length===1)?tg.slice():[],stores:f.store?[f.store]:[]};
+}
+function openTabManager(){
+  const f0={status:'all',cat:ui.cat,store:ui.store,tags:ui.tags.slice(),tagMode:ui.tagMode};
+  const name=h('input',{type:'text',id:'t-name',placeholder:'예: 일본 쇼핑리스트, 집들이 선물',autocomplete:'off'});
+  const mkSel=(id,opts,val,all)=>{const el=h('select',{id},h('option',{value:''},all),opts.map(o=>h('option',{value:o},o)));el.value=opts.includes(val)?val:'';return el};
+  const st=h('select',{id:'t-st'},[['all','위시와 소장 모두'],['wish','위시만'],['owned','소장만']].map(([v,l])=>h('option',{value:v},l)));st.value=f0.status;
+  const cat=mkSel('t-cat',[...new Set([...optList('cats'),...used('category')])],f0.cat,'카테고리 상관없음');
+  const store=mkSel('t-store',[...new Set([...optList('stores'),...allStores()])],f0.store,'구매처 상관없음');
+  let tags=f0.tags.slice(),mode=f0.tagMode||'or';
+  const tagBox=h('div',{class:'chips'}),modeBox=h('div',{class:'tabs mini'});
+  const newTag=h('input',{type:'text',id:'t-newtag',placeholder:'새 태그 (예: 일본)',autocomplete:'off','aria-label':'새 태그'});
+  function draw(){
+    const all=[...new Set([...tagsOf(items),...tags])];
+    tagBox.replaceChildren(...all.map(t=>h('button',{type:'button',class:'chip','aria-pressed':String(tags.includes(t)),onclick:()=>{tags=tags.includes(t)?tags.filter(x=>x!==t):[...tags,t];draw()}},'#'+t)));
+    tagBox.hidden=!all.length;
+    modeBox.replaceChildren(...[['or','하나라도 포함'],['and','모두 포함']].map(([k,l])=>h('button',{type:'button','aria-selected':String(mode===k),onclick:()=>{mode=k;draw()}},l)));
+  }
+  const addTag=()=>{const v=newTag.value.replace(/[#,]/g,'').trim();if(!v) return;newTag.value='';if(!tags.includes(v)) tags.push(v);draw()};
+  const list=h('div',{class:'meas'});
+  function drawList(){
+    const tabs=prefs.tabs||[];
+    list.replaceChildren(...(tabs.length?tabs.map(t=>h('div',{class:'lrow'},h('span',{},t.name,h('small',{class:'hint'},'  '+descTab(t.f))),
+      h('button',{type:'button',class:'btn danger',onclick:async()=>{await saveTabs((prefs.tabs||[]).filter(x=>x.id!==t.id));if(ui.tab==='c:'+t.id) ui.tab='wish';drawList();render()}},'삭제')))
+      :[h('span',{class:'hint'},'아직 만든 탭이 없어요.')]));
+  }
+  draw();drawList();
+  const F2=(label,el)=>h('div',{class:'fld'},h('label',{for:el.id},label),el);
+  const body=h('div',{class:'bd gut'},
+    F2('새 탭 이름',name),
+    h('div',{class:'row'},F2('위시 / 소장',st),F2('카테고리',cat)),
+    F2('구매처',store),
+    h('div',{class:'fld'},h('span',{class:'lb'},'태그'),modeBox,tagBox,h('div',{class:'lrow'},newTag,h('button',{type:'button',class:'btn',onclick:addTag},'추가')),
+      h('span',{class:'hint'},'고른 조건에 맞는 기록만 이 탭에 모여요. 새 태그를 조건으로 넣어 두면, 앞으로 그 태그를 단 기록이 자동으로 이 탭에 들어와요.')),
+    h('div',{class:'fld'},h('span',{class:'lb'},'만든 탭'),list));
+  const mk=h('button',{type:'button',class:'btn primary',onclick:async()=>{
+    const nm=name.value.trim();if(!nm){toast('탭 이름을 적어 주세요');name.focus();return}
+    if((prefs.tabs||[]).length>=12){toast('탭은 12개까지 만들 수 있어요');return}
+    addTag();
+    const tab={id:'t'+Date.now().toString(36),name:nm.slice(0,20),f:{status:st.value,cat:cat.value,store:store.value,tags:tags.slice(),tagMode:mode}};
+    await saveTabs([...(prefs.tabs||[]),tab]);
+    ui.tab='c:'+tab.id;try{localStorage.setItem('cu-tab',ui.tab)}catch(e){}
+    ui.cat='';ui.store='';ui.tags=[];s.close();render();toast('탭을 만들었어요');
+  }},'탭 만들기');
+  const s=openSheet('탭 추가 · 관리',body,h('div',{class:'ft gut'},h('span',{class:'grow'}),mk));
+}
+function checkMore(){
+  const f=$('#filters'),m=$('#f-more');
+  f.classList.toggle('open',!!ui.fopen);m.setAttribute('aria-expanded',String(!!ui.fopen));
+  m.hidden=!(ui.fopen||f.scrollWidth>f.clientWidth+1);
 }
 const editChip=(on,fn)=>h('button',{type:'button',class:'chip edit',onclick:fn},on?'편집 끝':'목록 편집');
 function tagColorMatch(x,cols){
@@ -436,7 +510,7 @@ async function boot(){
     render();
   },err=>{clearTimeout(timer);loaded=true;showNote('기록을 불러올 수 없어요 ('+(err&&err.code||'오류')+').');render()});
   db.collection('looks').onSnapshot(snap=>{looks=snap.docs.map(d=>Object.assign({id:d.id},d.data()));render()},()=>{});
-  db.doc('meta/prefs').onSnapshot(snap=>{prefs=snap.exists?Object.assign({},snap.data()):{}},()=>{});
+  db.doc('meta/prefs').onSnapshot(snap=>{prefs=snap.exists?Object.assign({},snap.data()):{};prefsLoaded=true;render()},()=>{prefsLoaded=true;render()});
 }
 function showNote(t){const n=$('#note');n.textContent=t;n.hidden=!t}
 async function persist(id,data){
@@ -457,9 +531,10 @@ async function removeItem(it){
 
 /* ---------- list ---------- */
 function visible(){
-  const q=ui.q.trim().toLowerCase();
+  const q=ui.q.trim().toLowerCase(),ct=customTab();
   return items.filter(it=>{
-    if(ui.tab!=='all'&&(it.status||'wish')!==ui.tab) return false;
+    if(ct){if(!fixedMatch(it,ct.f)) return false}
+    else if(ui.tab!=='all'&&(it.status||'wish')!==ui.tab) return false;
     if(ui.store&&!storesOf(it).includes(ui.store)) return false;
     if(ui.cat&&it.category!==ui.cat) return false;
     if(!tagColorMatch(it,colorsOf(it).map(c=>c.n))) return false;
@@ -472,9 +547,12 @@ function visible(){
 }
 const used=k=>[...new Set(items.map(i=>i[k]).filter(Boolean))];
 function renderTabs(){
-  const cnt=s=>items.filter(i=>(i.status||'wish')===s).length;
-  $('#tabs').replaceChildren(...[['wish','위시',cnt('wish')],['owned','소장',cnt('owned')],['all','전체',items.length],['look','코디',looks.length]].map(([k,l,n])=>
-    h('button',{type:'button',role:'tab','aria-selected':String(ui.tab===k),onclick:()=>{ui.tab=k;try{localStorage.setItem('cu-tab',k)}catch(e){};render()}},l,h('b',{},n))));
+  const cnt=k=>items.filter(i=>(i.status||'wish')===k).length;
+  const fixed=[['wish','위시',cnt('wish')],['owned','소장',cnt('owned')],['all','전체',items.length],['look','코디',looks.length]];
+  const custom=(prefs.tabs||[]).map(t=>['c:'+t.id,t.name,items.filter(i=>fixedMatch(i,t.f)).length]);
+  $('#tabs').replaceChildren(...[...fixed,...custom].map(([k,l,n])=>
+    h('button',{type:'button',role:'tab','aria-selected':String(ui.tab===k),onclick:()=>{ui.tab=k;try{localStorage.setItem('cu-tab',k)}catch(e){};render()}},l,h('b',{},n))),
+    h('button',{type:'button',class:'tabadd','aria-label':'탭 추가·관리',onclick:openTabManager},'＋'));
 }
 let filtersBuilt='';
 function renderFilters(){
@@ -484,13 +562,13 @@ function renderFilters(){
   if(sig===filtersBuilt) return; filtersBuilt=sig;
   const sel=(id,label,opts,key)=>{const s=h('select',{id,'aria-label':label,onchange:e=>{ui[key]=e.target.value;renderList()}},h('option',{value:''},label+' 전체'),opts.map(o=>h('option',{value:o},o)));s.value=opts.includes(ui[key])?ui[key]:'';return s};
   const keep=$('#f-q');
-  const q=keep||h('input',{type:'search',id:'f-q',placeholder:'이름·태그·메모 검색','aria-label':'검색',oninput:e=>{ui.q=e.target.value;renderList()}});
+  const q=keep||h('input',{type:'search',id:'f-q',placeholder:'검색','aria-label':'검색',oninput:e=>{ui.q=e.target.value;renderList()}});
   const tin=(id,key,ph)=>h('input',{type:'number',id,class:'tf',placeholder:ph,'aria-label':ph,value:ui[key],oninput:e=>{ui[key]=e.target.value;renderList()}});
   const tf=[tin('f-tlo','tLo','기온 최저'),h('span',{class:'hint'},'~'),tin('f-thi','tHi','최고 ℃')];
   const ws=h('select',{id:'f-w','aria-label':'날씨',onchange:e=>{ui.w=e.target.value;renderList()}},h('option',{value:''},'날씨 전체'),WEATHER.map(x=>h('option',{value:x},x)));ws.value=ui.w;
   const pb=h('button',{type:'button',class:'chip',id:'f-panel','aria-pressed':String(nSel>0),'aria-expanded':String(ui.panel),onclick:()=>{ui.panel=!ui.panel;render()}},'태그·색상'+(nSel?' '+nSel:'')+(ui.panel?' ▴':' ▾'));
   if(ui.tab==='look'){$('#filters').replaceChildren(q,pb,...tf,ws);return}
-  $('#filters').replaceChildren(q,pb,...tf,sel('f-store','구매처',stores,'store'),sel('f-cat','카테고리',cats,'cat'),h('button',{type:'button',class:'chip','aria-pressed':String(ui.meas),onclick:()=>{ui.meas=!ui.meas;render()}},'실측 있음'),
+  $('#filters').replaceChildren(sel('f-cat','카테고리',cats,'cat'),sel('f-store','구매처',stores,'store'),q,pb,...tf,h('button',{type:'button',class:'chip','aria-pressed':String(ui.meas),onclick:()=>{ui.meas=!ui.meas;render()}},'실측 있음'),
     );
 }
 function renderPanel(){
@@ -569,7 +647,10 @@ function renderList(){
         h('li',{},'매장에서 찍은 사진·동영상은 + 버튼으로 바로 추가'))));
   } else em.replaceChildren();
 }
-function render(){const tg=allTags();ui.tags=ui.tags.filter(t=>tg.includes(t));renderTabs();renderFilters();renderPanel();renderList()}
+function render(){
+  if(ui.tab.startsWith('c:')&&(prefsLoaded||local)&&!customTab()) ui.tab='wish';
+  const tg=allTags();ui.tags=ui.tags.filter(t=>tg.includes(t));renderTabs();renderFilters();checkMore();renderPanel();renderList();
+}
 
 /* ---------- sheets ---------- */
 function openSheet(title,body,footer){
@@ -690,6 +771,7 @@ function openCropper(file,onDone,more,lab){
 /* ---------- editor ---------- */
 let activeEditor=null,autoReadOff=false;
 function openEditor(src,id){
+  if(!id){const td=tabDefaults();if(td) src=Object.assign({},td,src||{},{stores:[...new Set([...td.stores,...storesOf(src||{})])]})}
   const d=Object.assign({status:ui.tab==='owned'?'owned':'wish',name:'',link:'',store:'',category:'',currency:'KRW',salePrice:null,boughtPrice:null,boughtDate:'',marks:[],tags:[],memo:'',media:[]},src||{});
   d.media=(d.media||[]).map(m=>Object.assign({},m)); d.marks=[...(d.marks||[])];
   d.tags=[...(d.tags||[])]; d.colors=colorsOf(d).map(c=>Object.assign({},c)); d.temps=(d.temps||[]).map(r=>Object.assign({},r)); d.measures=arrangeMeas(d.measures||[],partsFor(d.category));let measOpen=d.measures.some(m=>m.v); if(d.place&&!d.tags.includes(d.place)) d.tags.push(d.place);
@@ -936,7 +1018,7 @@ function openEditor(src,id){
         await saveLook(null,{photos,memo:lookMemo.value.trim(),tags:[],itemIds:[id],temps:[],colors:[],createdAt:Date.now()});
         lookPicks.length=0;
       }
-      ui.tab=d.status;closeAll();render();toast('저장했어요');
+      if(!customTab()) ui.tab=d.status;closeAll();render();toast('저장했어요');
     }catch(e){
       const code=e&&e.code;
       const msg={too_large:'파일이 너무 커요 (파일당 20MB까지)',unsupported_type:'지원하지 않는 파일 형식이에요 (사진은 JPG·PNG, 동영상은 MP4·WebM)',quota_or_state:'저장 공간이 가득 찼어요. 오래된 사진·동영상을 지워 주세요',quota_exceeded:'기록 개수 한도에 도달했어요',no_assets:'이 화면에서는 사진을 올릴 수 없어요',rate_limited:'잠시 후 다시 시도해 주세요'}[code]||('저장하지 못했어요 ('+(code||'오류')+')');
@@ -1153,7 +1235,7 @@ async function reviewOrder(r,file){
         boughtPrice:st==='owned'?x.price+(x.adj||0):null,boughtDate:st==='owned'?date.value:'',qty:x.qty,orderAdj:null,extraDisc:st==='owned'?Math.max(0,-(x.adj||0)):0,orderId:st==='owned'?orderId:null,marks:[],tags:tg,memo:'',media,createdAt:now+i,updatedAt:now+i});
         x.done=true;
       }
-      ui.tab=st;s.close();render();toast(act.length+'개를 추가했어요');
+      if(!customTab()) ui.tab=st;s.close();render();toast(act.length+'개를 추가했어요');
     }catch(e){save.disabled=false;save.textContent='기록 추가';toast('일부를 추가하지 못했어요 ('+(e&&e.code||'오류')+'). 목록을 확인해 주세요')}
   }},'기록 추가');
   const s=openSheet('여러 항목 확인',body,h('div',{class:'ft gut'},h('span',{class:'grow'}),save));
@@ -1195,5 +1277,7 @@ $('#btn-usage').addEventListener('click',async()=>{
   try{const {usage:u}=await assets.list();const mb=n=>(n/1048576).toFixed(1)+'MB';$('#usage').textContent='사진·동영상 '+u.files+'/'+u.maxFiles+'개 · '+mb(u.bytes)+' / '+mb(u.maxBytes)}
   catch(e){$('#usage').textContent='확인하지 못했어요'}
 });
+$('#f-more').addEventListener('click',()=>{ui.fopen=!ui.fopen;checkMore()});
+addEventListener('resize',()=>checkMore());
 boot();
 </script>
