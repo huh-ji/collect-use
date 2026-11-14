@@ -556,11 +556,15 @@ function renderTabs(){
 }
 let filtersBuilt='';
 function renderFilters(){
-  const stores=allStores(),cats=used('category'),tags=[...new Set(items.flatMap(i=>i.tags||[]))],hasAdj=items.some(i=>i.orderAdj);
+  const ct=customTab(),base=items.filter(it=>ct?fixedMatch(it,ct.f):(ui.tab==='all'||ui.tab==='look'||(it.status||'wish')===ui.tab));
+  const tally=fn=>{const m=new Map();for(const it of base) for(const k of fn(it)) if(k) m.set(k,(m.get(k)||0)+1);return [...m].sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0],'ko'))};
+  const stores=tally(storesOf),cats=tally(it=>[it.category]);
+  if(ui.cat&&!cats.some(o=>o[0]===ui.cat)) ui.cat='';
+  if(ui.store&&!stores.some(o=>o[0]===ui.store)) ui.store='';
   const nSel=ui.tags.length+ui.colors.length;
-  const sig=JSON.stringify([stores,cats,ui.meas,ui.tab==='look',ui.panel,nSel]);
+  const sig=JSON.stringify([stores,cats,base.length,ui.cat,ui.store,ui.meas,ui.tab==='look',ui.panel,nSel]);
   if(sig===filtersBuilt) return; filtersBuilt=sig;
-  const sel=(id,label,opts,key)=>{const s=h('select',{id,'aria-label':label,onchange:e=>{ui[key]=e.target.value;renderList()}},h('option',{value:''},label+' 전체'),opts.map(o=>h('option',{value:o},o)));s.value=opts.includes(ui[key])?ui[key]:'';return s};
+  const sel=(id,label,opts,key)=>{const s=h('select',{id,'aria-label':label,onchange:e=>{ui[key]=e.target.value;renderList()}},h('option',{value:''},label+' 전체 ('+base.length+')'),opts.map(([o,n])=>h('option',{value:o},o+' ('+n+')')));s.value=ui[key]||'';return s};
   const keep=$('#f-q');
   const q=keep||h('input',{type:'search',id:'f-q',placeholder:'검색','aria-label':'검색',oninput:e=>{ui.q=e.target.value;renderList()}});
   const tin=(id,key,ph)=>h('input',{type:'number',id,class:'tf',placeholder:ph,'aria-label':ph,value:ui[key],oninput:e=>{ui[key]=e.target.value;renderList()}});
