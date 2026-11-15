@@ -465,6 +465,18 @@ function h(tag,attrs,...kids){
 function filePick(label,opts,onFiles){
   return h('label',{class:'btn pick'},h('span',{},label),h('input',{type:'file',accept:opts.accept,multiple:opts.multiple,'aria-label':label,onchange:e=>{const f=[...e.target.files];e.target.value='';if(f.length) onFiles(f)}}));
 }
+async function capUrl(file){
+  try{
+    const buf=new Uint8Array(await file.slice(Math.max(0,file.size-16384)).arrayBuffer());
+    let t='';for(const c of buf) t+=String.fromCharCode(c);
+    const i=t.lastIndexOf('Captured_App_Info');if(i<0) return '';
+    const run=(t.slice(i+17).match(/^[A-Za-z0-9+\/=]+/)||[''])[0];
+    for(let k=run.length;k>=Math.max(4,run.length-12);k--){
+      try{const o=JSON.parse(atob(run.slice(0,k)));return safeUrl(o&&o.capurl)||''}catch(e){}
+    }
+  }catch(e){}
+  return '';
+}
 function pasteBox(onImage){
   const box=h('div',{class:'paste',contenteditable:'true',role:'textbox','aria-label':'사진 붙여넣기 칸','data-ph':'복사한 사진은 여기를 길게 눌러 붙여넣기'});
   box.addEventListener('input',()=>{
@@ -558,13 +570,12 @@ let filtersBuilt='';
 function renderFilters(){
   const ct=customTab(),base=items.filter(it=>ct?fixedMatch(it,ct.f):(ui.tab==='all'||ui.tab==='look'||(it.status||'wish')===ui.tab));
   const tally=fn=>{const m=new Map();for(const it of base) for(const k of fn(it)) if(k) m.set(k,(m.get(k)||0)+1);return [...m].sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0],'ko'))};
-  const stores=tally(storesOf),cats=tally(it=>[it.category]);
-  if(ui.cat&&!cats.some(o=>o[0]===ui.cat)) ui.cat='';
-  if(ui.store&&!stores.some(o=>o[0]===ui.store)) ui.store='';
+  const stores=allStores(),present=tally(it=>[it.category]);
+  const cats=[...present,...[...new Set([...optList('cats'),...used('category')])].filter(c=>!present.some(o=>o[0]===c)).map(c=>[c,0])];
   const nSel=ui.tags.length+ui.colors.length;
   const sig=JSON.stringify([stores,cats,base.length,ui.cat,ui.store,ui.meas,ui.tab==='look',ui.panel,nSel]);
   if(sig===filtersBuilt) return; filtersBuilt=sig;
-  const sel=(id,label,opts,key)=>{const s=h('select',{id,'aria-label':label,onchange:e=>{ui[key]=e.target.value;renderList()}},h('option',{value:''},label+' 전체 ('+base.length+')'),opts.map(([o,n])=>h('option',{value:o},o+' ('+n+')')));s.value=ui[key]||'';return s};
+  const sel=(id,label,opts,key,counted)=>{const s=h('select',{id,'aria-label':label,onchange:e=>{ui[key]=e.target.value;renderList()}},h('option',{value:''},label+' 전체'+(counted?' ('+base.length+')':'')),opts.map(o=>counted?h('option',{value:o[0]},o[0]+' ('+o[1]+')'):h('option',{value:o},o)));s.value=opts.some(o=>(counted?o[0]:o)===ui[key])?ui[key]:'';return s};
   const keep=$('#f-q');
   const q=keep||h('input',{type:'search',id:'f-q',placeholder:'검색','aria-label':'검색',oninput:e=>{ui.q=e.target.value;renderList()}});
   const tin=(id,key,ph)=>h('input',{type:'number',id,class:'tf',placeholder:ph,'aria-label':ph,value:ui[key],oninput:e=>{ui[key]=e.target.value;renderList()}});
@@ -572,7 +583,7 @@ function renderFilters(){
   const ws=h('select',{id:'f-w','aria-label':'날씨',onchange:e=>{ui.w=e.target.value;renderList()}},h('option',{value:''},'날씨 전체'),WEATHER.map(x=>h('option',{value:x},x)));ws.value=ui.w;
   const pb=h('button',{type:'button',class:'chip',id:'f-panel','aria-pressed':String(nSel>0),'aria-expanded':String(ui.panel),onclick:()=>{ui.panel=!ui.panel;render()}},'태그·색상'+(nSel?' '+nSel:'')+(ui.panel?' ▴':' ▾'));
   if(ui.tab==='look'){$('#filters').replaceChildren(q,pb,...tf,ws);return}
-  $('#filters').replaceChildren(sel('f-cat','카테고리',cats,'cat'),sel('f-store','구매처',stores,'store'),q,pb,...tf,h('button',{type:'button',class:'chip','aria-pressed':String(ui.meas),onclick:()=>{ui.meas=!ui.meas;render()}},'실측 있음'),
+  $('#filters').replaceChildren(sel('f-cat','카테고리',cats,'cat',true),sel('f-store','구매처',stores,'store'),q,pb,...tf,h('button',{type:'button',class:'chip','aria-pressed':String(ui.meas),onclick:()=>{ui.meas=!ui.meas;render()}},'실측 있음'),
     );
 }
 function renderPanel(){
@@ -821,7 +832,7 @@ function openEditor(src,id){
     let asked=false;
     for(const f of files){
       if(f.type.startsWith('video/')){ if(f.size>MAX_VIDEO){toast('동영상은 파일당 20MB까지 넣을 수 있어요 ('+f.name+')');continue} addBlob(f,'video') }
-      else if(f.type.startsWith('image/')){const b=await shrink(f);addBlob(b,'image');if(!asked&&!F.name.value.trim()){asked=true;readInfo(b)}}
+      else if(f.type.startsWith('image/')){const cu=await capUrl(f);if(cu) autoLink(cu);const b=await shrink(f);addBlob(b,'image');if(!asked&&!F.name.value.trim()){asked=true;readInfo(b)}}
     }
   }
   const api={addFiles,crop:file=>openCropper(file,b=>{addBlob(b,'image');if(!F.name.value.trim()) readInfo(b)}),readSize:f=>readSize(f)};
@@ -835,6 +846,12 @@ function openEditor(src,id){
       el.addEventListener('change',()=>{if(absorbLink(el.value,i)) el.value=links[i]});
       return h('div',{class:'lrow'},el,links.length>1?h('button',{type:'button',class:'btn','aria-label':'이 링크 빼기',onclick:()=>{links.splice(i,1);drawLinks()}},'×'):null);
     }));
+  }
+  function autoLink(u){
+    if(links.some(x=>x.trim()===u)) return;
+    const i=links.findIndex(x=>!x.trim());if(i>=0) links[i]=u;else links.push(u);
+    const st=storeFromUrl(u);if(st) addStore(st);
+    drawLinks();toast('캡쳐에 기록된 링크를 넣었어요');
   }
   function absorbLink(text,i){
     const p=parseShared(text); if(!p.link) return false;
