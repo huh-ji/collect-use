@@ -785,7 +785,7 @@ function openCropper(file,onDone,more,lab){
 
 /* ---------- editor ---------- */
 let activeEditor=null,autoReadOff=false;
-function openEditor(src,id){
+function openEditor(src,id,q){
   if(!id){const td=tabDefaults();if(td) src=Object.assign({},td,src||{},{stores:[...new Set([...td.stores,...storesOf(src||{})])]})}
   const d=Object.assign({status:ui.tab==='owned'?'owned':'wish',name:'',link:'',store:'',category:'',currency:'KRW',salePrice:null,boughtPrice:null,boughtDate:'',marks:[],tags:[],memo:'',media:[]},src||{});
   d.media=(d.media||[]).map(m=>Object.assign({},m)); d.marks=[...(d.marks||[])];
@@ -998,11 +998,13 @@ function openEditor(src,id){
       h('div',{class:'chips'},filePick('코디 사진 넣기',{accept:'image/*',multiple:true},async f=>{for(const x of f){if(x.type.startsWith('image/')){const b=await shrink(x);lookPicks.push({blob:b,url:URL.createObjectURL(b)})}}drawLookStrip()})),
       h('span',{class:'hint'},'넣은 사진은 저장할 때 이 제품과 연결된 코디 하나로 만들어져요. 이 제품에 적은 색상·기온·메모는 코디에서도 함께 보이니 따로 적지 않아도 돼요. 다른 옷 연결이나 자세한 내용은 코디 탭에서 고칠 수 있어요.')));
   const save=h('button',{type:'button',class:'btn primary',onclick:onSave},'저장');
-  const s=openSheet(id?'기록 수정':'새 기록',body,h('div',{class:'ft gut'},h('span',{class:'grow'}),save));
+  const skip=q&&q.n>1?h('button',{type:'button',class:'btn',onclick:()=>{closeAll();q.next()}},q.i<q.n?'건너뛰기':'이 사진 빼고 끝내기'):null;
+  const s=openSheet(id?'기록 수정':(q&&q.n>1?'새 기록 '+q.i+' / '+q.n:'새 기록'),body,h('div',{class:'ft gut'},skip,h('span',{class:'grow'}),save));
   const origClose=s.close;
   const closeAll=()=>{activeEditor=null;origClose()};
-  s.sheet.querySelector('.hd .btn').onclick=closeAll;
+  s.sheet.querySelector('.hd .btn').onclick=()=>{closeAll();if(q) q.stop()};
   activeEditor=api; syncStatus(); drawStrip(); drawMeas(); syncEx(); drawLinks(); drawCats(); drawLookStrip();
+  if(q&&q.files) api.addFiles(q.files);
 
   async function onSave(){
     const name=F.name.value.trim();
@@ -1039,7 +1041,8 @@ function openEditor(src,id){
         await saveLook(null,{photos,memo:lookMemo.value.trim(),tags:[],itemIds:[id],temps:[],colors:[],createdAt:Date.now()});
         lookPicks.length=0;
       }
-      if(!customTab()) ui.tab=d.status;closeAll();render();toast('저장했어요');
+      if(!customTab()) ui.tab=d.status;closeAll();render();
+      if(q&&q.i<q.n){toast('저장했어요. 다음 사진으로 넘어가요');q.next()}else toast(q&&q.n>1?q.n+'장 모두 끝났어요':'저장했어요');
     }catch(e){
       const code=e&&e.code;
       const msg={too_large:'파일이 너무 커요 (파일당 20MB까지)',unsupported_type:'지원하지 않는 파일 형식이에요 (사진은 JPG·PNG, 동영상은 MP4·WebM)',quota_or_state:'저장 공간이 가득 찼어요. 오래된 사진·동영상을 지워 주세요',quota_exceeded:'기록 개수 한도에 도달했어요',no_assets:'이 화면에서는 사진을 올릴 수 없어요',rate_limited:'잠시 후 다시 시도해 주세요'}[code]||('저장하지 못했어요 ('+(code||'오류')+')');
@@ -1272,12 +1275,22 @@ function quickAdd(){
 }
 $('#quick-go').addEventListener('click',quickAdd);
 $('#quick-link').addEventListener('keydown',e=>{if(e.key==='Enter') quickAdd()});
+function addEach(files){
+  files=files.filter(f=>f.type.startsWith('image/'));
+  if(!files.length) return;
+  const n=files.length;let i=0,done=false;
+  const next=()=>{if(done) return;if(i>=n){done=true;return}const f=files[i++];openEditor(null,null,{i,n,files:[f],next,stop})};
+  const stop=()=>{if(done) return;done=true;if(i<n) toast('남은 '+(n-i)+'장은 추가하지 않았어요')};
+  next();
+}
 function openAddMenu(){
   const body=h('div',{class:'bd gut'},
     h('div',{class:'fld'},filePick('여러 항목 추가하기',{accept:'image/*'},f=>{s.close();importOrder(f[0])}),
       h('span',{class:'hint'},'주문내역, 장바구니, 추천 목록처럼 상품이 여러 개 보이는 캡쳐 한 장을 고르면, 상품마다 이름·금액·사진을 읽어 기록을 따로 만들어요. 저장 전에 확인하고 고칠 수 있어요.')),
     h('div',{class:'fld'},h('button',{type:'button',class:'btn',onclick:()=>{s.close();openEditor(null)}},'한 항목만 추가하기'),
-      h('span',{class:'hint'},'제품 하나를 직접 기록해요. 사진·동영상, 링크, 실측, 기온까지 넣을 수 있어요.')));
+      h('span',{class:'hint'},'제품 하나를 직접 기록해요. 사진·동영상, 링크, 실측, 기온까지 넣을 수 있어요.')),
+    h('div',{class:'fld'},filePick('사진마다 하나씩 추가하기',{accept:'image/*',multiple:true},f=>{s.close();addEach(f)}),
+      h('span',{class:'hint'},'사진을 여러 장 고르면 한 장에 제품 하나씩, 순서대로 등록 화면이 열려요. 사진에서 읽은 이름·가격·링크를 확인하고 고쳐서 저장하면 다음 사진으로 넘어가요.')));
   const s=openSheet('추가하기',body,null);
 }
 $('#fab').addEventListener('click',()=>ui.tab==='look'?openLookEditor(null):openAddMenu());
