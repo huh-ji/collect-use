@@ -271,30 +271,38 @@ async function setHidden(kind,name,hide){
   if(db&&!local){try{await db.doc('meta/prefs').set(prefs)}catch(e){toast('목록 변경을 저장하지 못했어요')}}
 }
 const customTab=()=>ui.tab.startsWith('c:')?((prefs.tabs||[]).find(t=>'c:'+t.id===ui.tab)||null):null;
+const listOf=v=>Array.isArray(v)?v.filter(Boolean):(v?[v]:[]);
 function fixedMatch(it,f){
   if(f.status&&f.status!=='all'&&(it.status||'wish')!==f.status) return false;
-  if(f.cat&&it.category!==f.cat) return false;
-  if(f.store&&!storesOf(it).includes(f.store)) return false;
+  const fc=listOf(f.cat),fs=listOf(f.store);
+  if(fc.length&&!fc.includes(it.category)) return false;
+  if(fs.length&&!storesOf(it).some(x=>fs.includes(x))) return false;
   const tg=it.tags||[],ft=f.tags||[];
   if(ft.length&&!(f.tagMode==='and'?ft.every(t=>tg.includes(t)):ft.some(t=>tg.includes(t)))) return false;
   return true;
 }
-const descTab=f=>[f.status==='wish'?'위시':f.status==='owned'?'소장':'',f.cat,f.store,(f.tags||[]).map(t=>'#'+t).join(f.tagMode==='and'?' + ':' / ')].filter(Boolean).join(' · ')||'조건 없음';
+const descTab=f=>[f.status==='wish'?'위시':f.status==='owned'?'소장':'',listOf(f.cat).join(', '),listOf(f.store).join(', '),(f.tags||[]).map(t=>'#'+t).join(f.tagMode==='and'?' + ':' / ')].filter(Boolean).join(' · ')||'조건 없음';
 async function saveTabs(tabs){
   prefs=Object.assign({},prefs,{tabs});
   if(db&&!local){try{await db.doc('meta/prefs').set(prefs)}catch(e){toast('탭을 저장하지 못했어요')}}
 }
 function tabDefaults(){
   const t=customTab();if(!t) return null;const f=t.f,tg=f.tags||[];
-  return {status:f.status==='owned'?'owned':'wish',category:f.cat||'',tags:(f.tagMode==='and'||tg.length===1)?tg.slice():[],stores:f.store?[f.store]:[]};
+  const fc=listOf(f.cat),fs=listOf(f.store);
+  return {status:f.status==='owned'?'owned':'wish',category:fc.length===1?fc[0]:'',tags:(f.tagMode==='and'||tg.length===1)?tg.slice():[],stores:fs.length===1?fs.slice():[]};
 }
 function openTabManager(){
   const f0={status:'all',cat:ui.cat,store:ui.store,tags:ui.tags.slice(),tagMode:ui.tagMode};
   const name=h('input',{type:'text',id:'t-name',placeholder:'예: 일본 쇼핑리스트, 집들이 선물',autocomplete:'off'});
-  const mkSel=(id,opts,val,all)=>{const el=h('select',{id},h('option',{value:''},all),opts.map(o=>h('option',{value:o},o)));el.value=opts.includes(val)?val:'';return el};
+  const multi=(opts,init,none)=>{
+    let sel=init.filter(o=>opts.includes(o));const box=h('div',{class:'chips'}),note=h('span',{class:'hint'});
+    const draw=()=>{box.replaceChildren(...opts.map(o=>h('button',{type:'button',class:'chip','aria-pressed':String(sel.includes(o)),onclick:()=>{sel=sel.includes(o)?sel.filter(x=>x!==o):[...sel,o];draw()}},o)));
+      note.textContent=sel.length?sel.length+'개 중 하나라도 해당하면 이 탭에 들어와요':none};
+    draw();return {box,note,get:()=>sel.slice()};
+  };
   const st=h('select',{id:'t-st'},[['all','위시와 소장 모두'],['wish','위시만'],['owned','소장만']].map(([v,l])=>h('option',{value:v},l)));st.value=f0.status;
-  const cat=mkSel('t-cat',[...new Set([...optList('cats'),...used('category')])],f0.cat,'카테고리 상관없음');
-  const store=mkSel('t-store',[...new Set([...optList('stores'),...allStores()])],f0.store,'구매처 상관없음');
+  const cat=multi([...new Set([...optList('cats'),...used('category')])],listOf(f0.cat),'고르지 않으면 카테고리 상관없이 모여요');
+  const store=multi([...new Set([...optList('stores'),...allStores()])],listOf(f0.store),'고르지 않으면 구매처 상관없이 모여요');
   let tags=f0.tags.slice(),mode=f0.tagMode||'or';
   const tagBox=h('div',{class:'chips'}),modeBox=h('div',{class:'tabs mini'});
   const newTag=h('input',{type:'text',id:'t-newtag',placeholder:'새 태그 (예: 일본)',autocomplete:'off','aria-label':'새 태그'});
@@ -316,8 +324,9 @@ function openTabManager(){
   const F2=(label,el)=>h('div',{class:'fld'},h('label',{for:el.id},label),el);
   const body=h('div',{class:'bd gut'},
     F2('새 탭 이름',name),
-    h('div',{class:'row'},F2('위시 / 소장',st),F2('카테고리',cat)),
-    F2('구매처',store),
+    F2('위시 / 소장',st),
+    h('div',{class:'fld'},h('span',{class:'lb'},'카테고리'),cat.box,cat.note),
+    h('div',{class:'fld'},h('span',{class:'lb'},'구매처'),store.box,store.note),
     h('div',{class:'fld'},h('span',{class:'lb'},'태그'),modeBox,tagBox,h('div',{class:'lrow'},newTag,h('button',{type:'button',class:'btn',onclick:addTag},'추가')),
       h('span',{class:'hint'},'고른 조건에 맞는 기록만 이 탭에 모여요. 새 태그를 조건으로 넣어 두면, 앞으로 그 태그를 단 기록이 자동으로 이 탭에 들어와요.')),
     h('div',{class:'fld'},h('span',{class:'lb'},'만든 탭'),list));
@@ -325,7 +334,7 @@ function openTabManager(){
     const nm=name.value.trim();if(!nm){toast('탭 이름을 적어 주세요');name.focus();return}
     if((prefs.tabs||[]).length>=12){toast('탭은 12개까지 만들 수 있어요');return}
     addTag();
-    const tab={id:'t'+Date.now().toString(36),name:nm.slice(0,20),f:{status:st.value,cat:cat.value,store:store.value,tags:tags.slice(),tagMode:mode}};
+    const tab={id:'t'+Date.now().toString(36),name:nm.slice(0,20),f:{status:st.value,cat:cat.get(),store:store.get(),tags:tags.slice(),tagMode:mode}};
     await saveTabs([...(prefs.tabs||[]),tab]);
     ui.tab='c:'+tab.id;try{localStorage.setItem('cu-tab',ui.tab)}catch(e){}
     ui.cat='';ui.store='';ui.tags=[];s.close();render();toast('탭을 만들었어요');
