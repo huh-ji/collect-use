@@ -184,6 +184,25 @@ input[type=number]{background:var(--surface);border:1px solid var(--line);border
 .chip .sw{margin-right:5px}
 .crow{display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:center}
 img.drop{max-width:100%;cursor:crosshair;border-radius:8px;touch-action:manipulation}
+.tcard{border:1px solid var(--line);border-radius:8px;padding:8px 10px;display:flex;flex-direction:column;gap:8px;background:var(--surface)}
+.tcard .chip{min-height:28px;padding:2px 10px}
+.tcard>.xrow{flex-wrap:nowrap}
+.tcard>.xrow>.chips{flex:1;min-width:0}
+.fld .tcard select{width:auto;flex:none;min-height:32px;padding:4px 8px}
+.tcard>.xrow>.btn{flex:none;min-height:32px;padding:4px 10px}
+.trange{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center}
+.tlab{white-space:nowrap;font-size:13px}.tlab.off{color:var(--muted);font-weight:400;font-family:var(--font)}
+.drange{position:relative;height:28px;min-width:0}
+.drange .dtrack,.drange .dfill{position:absolute;top:12px;height:4px;border-radius:2px}
+.drange .dtrack{left:0;right:0;background:var(--line)}
+.drange .dfill{background:var(--accent)}
+.drange.off .dfill{background:var(--muted);opacity:.4}
+.drange input[type=range]{position:absolute;inset:0;width:100%;margin:0;background:none;pointer-events:none;-webkit-appearance:none;appearance:none;height:28px}
+.drange input[type=range]::-webkit-slider-runnable-track{background:none;height:28px}
+.drange input[type=range]::-moz-range-track{background:none}
+.drange input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;pointer-events:auto;width:22px;height:22px;border-radius:50%;background:var(--surface);border:2px solid var(--accent);margin-top:3px;cursor:pointer}
+.drange input[type=range]::-moz-range-thumb{pointer-events:auto;width:18px;height:18px;border-radius:50%;background:var(--surface);border:2px solid var(--accent);cursor:pointer}
+.drange.off input[type=range]::-webkit-slider-thumb{border-color:var(--muted)}
 .msub{grid-column:1/-1;display:flex;gap:8px;align-items:center}
 .msub select{width:auto}
 .chk{display:flex;gap:8px;align-items:center}
@@ -421,39 +440,51 @@ function arrangeMeas(list,parts){
 }
 const WEATHER=['맑음','흐림','비','눈','바람'];
 const tnum=v=>{const n=parseFloat(v);return isFinite(n)?n:null};
-const cleanTemps=l=>(l||[]).map(r=>{let lo=tnum(r.lo),hi=tnum(r.hi);if(lo==null&&hi==null) return null;if(lo==null) lo=hi;if(hi==null) hi=lo;if(lo>hi)[lo,hi]=[hi,lo];return {lo,hi,w:r.w||''}}).filter(Boolean);
-const tempText=l=>cleanTemps(l).map(r=>(r.lo===r.hi?r.lo:r.lo+'~'+r.hi)+'℃'+(r.w?' '+r.w:'')).join(' · ');
+const SEASONS=['봄','여름','가을','겨울'];
+const SEASON_T={'봄':[10,20],'여름':[23,32],'가을':[10,20],'겨울':[-5,5]};
+const T_MIN=-20,T_MAX=40;
+const cleanTemps=l=>(l||[]).map(r=>{let lo=tnum(r.lo),hi=tnum(r.hi);const s=SEASONS.includes(r.s)?r.s:'';
+  if(lo==null&&hi==null){if(!s) return null;return {lo:null,hi:null,w:r.w||'',s}}
+  if(lo==null) lo=hi;if(hi==null) hi=lo;if(lo>hi)[lo,hi]=[hi,lo];return {lo,hi,w:r.w||'',s}}).filter(Boolean);
+const tempText=l=>cleanTemps(l).map(r=>[r.s,r.lo==null?'':(r.lo===r.hi?r.lo:r.lo+'~'+r.hi)+'℃',r.w].filter(Boolean).join(' ')).join(' · ');
 function tempMatch(x,useW){
-  const w=useW?ui.w:'';
-  const a=tnum(ui.tLo),b=tnum(ui.tHi);if(a==null&&b==null&&!w) return true;
+  const w=useW?ui.w:'',sn=ui.season;
+  const a=tnum(ui.tLo),b=tnum(ui.tHi),noT=a==null&&b==null;if(noT&&!w&&!sn) return true;
   const lo=Math.min(a??b,b??a),hi=Math.max(a??b,b??a);
-  return cleanTemps(x.temps).some(r=>(!w||r.w===w)&&((a==null&&b==null)||(r.lo<=hi&&r.hi>=lo)));
+  return cleanTemps(x.temps).some(r=>(!w||r.w===w)&&(!sn||r.s===sn)&&(noT||(r.lo!=null&&r.lo<=hi&&r.hi>=lo)));
 }
 const lookPhotos=l=>l.photos&&l.photos.length?l.photos:(l.media?[l.media]:[]);
 function tempEditor(list,prefix){
   const box=h('div',{class:'meas'});
-  function draw(){
-    box.replaceChildren(...list.map((r,i)=>{
-      const w=h('select',{id:prefix+'-w-'+i,'aria-label':'날씨',onchange:e=>{r.w=e.target.value}},h('option',{value:''},'날씨'),WEATHER.map(x=>h('option',{value:x},x)));w.value=r.w||'';
-      return h('div',{class:'trow'},
-        h('input',{type:'number',id:prefix+'-lo-'+i,value:r.lo??'',placeholder:'최저','aria-label':'최저 기온',oninput:e=>{r.lo=e.target.value}}),h('span',{},'~'),
-        h('input',{type:'number',id:prefix+'-hi-'+i,value:r.hi??'',placeholder:'최고','aria-label':'최고 기온',oninput:e=>{r.hi=e.target.value}}),h('span',{},'℃'),w,
-        h('button',{type:'button',class:'btn','aria-label':'이 기록 빼기',onclick:()=>{list.splice(i,1);draw()}},'×'));
-    }));
-    box.hidden=!list.length;
+  function row(r,i){
+    if(r.lo===''||r.lo==null){r.lo=null;r.hi=null}
+    let on=r.lo!=null;
+    const cur=()=>on?[Number(r.lo),Number(r.hi)]:(SEASON_T[r.s]||[10,20]);
+    const [a0,b0]=cur();
+    const lab=h('span',{class:'price tlab'});
+    const ra=h('input',{type:'range',min:T_MIN,max:T_MAX,step:1,value:a0,id:prefix+'-lo-'+i,'aria-label':'최저 기온'});
+    const rb=h('input',{type:'range',min:T_MIN,max:T_MAX,step:1,value:b0,id:prefix+'-hi-'+i,'aria-label':'최고 기온'});
+    const fill=h('div',{class:'dfill'});
+    const paint=()=>{const a=Number(ra.value),b=Number(rb.value),pc=v=>(v-T_MIN)/(T_MAX-T_MIN)*100;
+      fill.style.left=pc(a)+'%';fill.style.width=(pc(b)-pc(a))+'%';
+      lab.textContent=on?(a===b?a:a+'~'+b)+'℃':'기온 안 적음';lab.classList.toggle('off',!on);dr.classList.toggle('off',!on)};
+    const take=e=>{let a=Number(ra.value),b=Number(rb.value);if(a>b){if(e.target===ra) ra.value=b;else rb.value=a}on=true;r.lo=Number(ra.value);r.hi=Number(rb.value);paint()};
+    ra.addEventListener('input',take);rb.addEventListener('input',take);
+    const dr=h('div',{class:'drange'},h('div',{class:'dtrack'}),fill,ra,rb);
+    const seasons=h('div',{class:'chips'},SEASONS.map(x=>h('button',{type:'button',class:'chip','aria-pressed':String(r.s===x),onclick:()=>{r.s=r.s===x?'':x;if(!on&&SEASON_T[r.s]){ra.value=SEASON_T[r.s][0];rb.value=SEASON_T[r.s][1];paint()}draw()}},x)));
+    const w=h('select',{id:prefix+'-w-'+i,'aria-label':'날씨',onchange:e=>{r.w=e.target.value}},h('option',{value:''},'날씨'),WEATHER.map(x=>h('option',{value:x},x)));w.value=r.w||'';
+    paint();
+    return h('div',{class:'tcard'},
+      h('div',{class:'xrow'},seasons,h('span',{class:'grow'}),w,h('button',{type:'button',class:'btn','aria-label':'이 기록 빼기',onclick:()=>{list.splice(i,1);draw()}},'×')),
+      h('div',{class:'trange'},dr,lab,on?h('button',{type:'button',class:'chip',onclick:()=>{on=false;r.lo=null;r.hi=null;draw()}},'기온 지우기'):null));
   }
+  function draw(){box.replaceChildren(...list.map(row));box.hidden=!list.length}
   draw();
-  return h('div',{class:'fld'},h('span',{class:'lb'},'입은 날 기온 · 날씨'),box,
-    h('div',{class:'chips'},h('button',{type:'button',class:'btn',onclick:()=>{list.push({lo:'',hi:'',w:''});draw();const el=$('#'+prefix+'-lo-'+(list.length-1));if(el) el.focus()}},'+ 기온 기록')),
-    h('span',{class:'hint'},'입었던 날 활동 시간대의 기온 범위를 적어 두면 나중에 오늘 기온으로 찾을 수 있어요. 입은 날마다 따로 추가하세요.'));
+  return h('div',{class:'fld'},h('span',{class:'lb'},'입은 계절 · 기온 · 날씨'),box,
+    h('div',{class:'chips'},h('button',{type:'button',class:'btn',onclick:()=>{list.push({s:'',lo:null,hi:null,w:''});draw()}},'+ 입은 날 기록')),
+    h('span',{class:'hint'},'계절을 고르고, 기온은 슬라이더 두 손잡이로 범위를 맞추세요. 슬라이더를 움직이지 않으면 기온은 저장되지 않아요. 입은 날마다 따로 추가할 수 있어요.'));
 }
-const MARK_TAG={rebuy:'재구매',travel:'여행',tryon:'입어봄'};
-const norm=it=>{if((it.marks||[]).length) it.tags=[...new Set([...(it.tags||[]),...it.marks.map(k=>MARK_TAG[k]).filter(Boolean)])];if(it.measures) it.measures=it.measures.map(normMeas);
-  if(it.orderAdj&&it.boughtPrice!=null){it.boughtPrice+=it.orderAdj;it.extraDisc=(it.extraDisc||0)+Math.max(0,-it.orderAdj);it.orderAdj=null}
-  return it};
-const INFO_PROMPT=`첨부 이미지는 쇼핑몰 상품 페이지를 캡쳐한 것(또는 그 일부)입니다. 이미지에 실제로 보이는 글자만 읽어서 아래 형식의 JSON 하나만 답하세요. 보이지 않는 값은 추측하지 말고 null로 두세요.
-{"brand": 브랜드명 또는 null(지그재그·에이블리처럼 여러 쇼핑몰이 입점한 앱에서는 상품명 위나 옆에 표시된 입점 쇼핑몰·브랜드 이름), "name": 브랜드명, 색상, 품번을 뺀 상품명 또는 null(상품 사진만 있고 상품명 글자가 없으면 null), "color": 이 상품에 대해 선택되었거나 하나만 표시된 색상 옵션 글자 그대로 또는 null(색상 선택지가 여러 개 나열만 되어 있으면 null), "code": 품번·상품코드·모델번호가 글자로 보이면 그대로, 아니면 null(주문번호나 URL의 숫자는 아님), "price": 지금 살 수 있는 판매 금액 숫자(할인가가 있으면 할인가, 취소선이 그어진 정가가 아닌 쪽) 또는 null, "currency": "KRW" 같은 통화 코드, "store": 화면에 쇼핑몰·앱 이름이 보일 때만 그 이름, 아니면 null}
-금액은 쉼표와 통화 기호 없이 숫자로만 적으세요.`;
+
 function fmtName(r){
   const t=v=>v==null?'':String(v).replace(/\s+/g,' ').trim();
   let nm=t(r.name);const br=t(r.brand),col=t(r.color),code=t(r.code);
@@ -523,7 +554,7 @@ let toastT;function toast(msg){document.querySelectorAll('.toast').forEach(t=>t.
 /* ---------- data ---------- */
 let db=null,assets=null,downloads=null,sample=null,local=false,loaded=false;
 let items=[],looks=[];
-const ui={tab:'wish',q:'',store:'',cat:'',tag:'',mark:'',adj:true,meas:false,tLo:'',tHi:'',w:'',tags:[],tagMode:'or',colors:[],panel:false};
+const ui={tab:'wish',q:'',store:'',cat:'',tag:'',mark:'',adj:true,meas:false,tLo:'',tHi:'',w:'',season:'',tags:[],tagMode:'or',colors:[],panel:false};
 try{const t=localStorage.getItem('cu-tab');if(t) ui.tab=t;if(localStorage.getItem('cu-adj')==='0') ui.adj=false}catch(e){}
 
 async function boot(){
@@ -599,8 +630,9 @@ function renderFilters(){
   const tf=[tin('f-tlo','tLo','기온 최저'),h('span',{class:'hint'},'~'),tin('f-thi','tHi','최고 ℃')];
   const ws=h('select',{id:'f-w','aria-label':'날씨',onchange:e=>{ui.w=e.target.value;renderList()}},h('option',{value:''},'날씨 전체'),WEATHER.map(x=>h('option',{value:x},x)));ws.value=ui.w;
   const pb=h('button',{type:'button',class:'chip',id:'f-panel','aria-pressed':String(nSel>0),'aria-expanded':String(ui.panel),onclick:()=>{ui.panel=!ui.panel;render()}},'태그·색상'+(nSel?' '+nSel:'')+(ui.panel?' ▴':' ▾'));
-  if(ui.tab==='look'){$('#filters').replaceChildren(q,pb,...tf,ws);return}
-  $('#filters').replaceChildren(sel('f-cat','카테고리',cats,'cat',true),sel('f-store','구매처',stores,'store'),q,pb,...tf,h('button',{type:'button',class:'chip','aria-pressed':String(ui.meas),onclick:()=>{ui.meas=!ui.meas;render()}},'실측 있음'),
+  const ss=h('select',{id:'f-season','aria-label':'계절',onchange:e=>{ui.season=e.target.value;renderList()}},h('option',{value:''},'계절 전체'),SEASONS.map(x=>h('option',{value:x},x)));ss.value=ui.season;
+  if(ui.tab==='look'){$('#filters').replaceChildren(q,pb,ss,...tf,ws);return}
+  $('#filters').replaceChildren(sel('f-cat','카테고리',cats,'cat',true),sel('f-store','구매처',stores,'store'),q,pb,ss,...tf,h('button',{type:'button',class:'chip','aria-pressed':String(ui.meas),onclick:()=>{ui.meas=!ui.meas;render()}},'실측 있음'),
     );
 }
 function renderPanel(){
@@ -717,13 +749,13 @@ function openDetail(id){
     add('구매일',it.boughtDate);
   }
   add('평소 할인가',pr(it.salePrice));
+  add('메모',it.memo?h('p',{class:'memo'},it.memo):null);
   add('사이즈',it.size); add('핏',it.fit);
   add('색상',colorsOf(it).length?swatchRow(colorsOf(it)):null);
-  add('입은 날 기온',tempText(it.temps));
+  add('입은 계절·기온',tempText(it.temps));
   {const lt=tempText(itemLooks(it).flatMap(l=>l.temps||[]));if(lt) add('코디의 기온',lt)}
   add('태그',(it.tags||[]).map(t=>'#'+t).join(' '));
   if(!hasMeas(it)) add('실측',null);
-  if(!it.memo) add('메모',null);
   const kv=h('dl',{class:'kv'});let showEmpty=false;
   const nEmpty=rows.filter(r=>r[1]==null).length;
   const paintKv=()=>kv.replaceChildren(...rows.filter(r=>r[1]!=null||showEmpty).flatMap(([k,v])=>[h('dt',{},k),v==null?h('dd',{class:'hint'},'—'):h('dd',{},v)]));
@@ -738,7 +770,6 @@ function openDetail(id){
     
     kv,et?h('div',{class:'xrow'},et):null,
     hasMeas(it)?h('div',{class:'fld'},h('span',{class:'lb'},'실측 (cm)'),h('dl',{class:'kv'},it.measures.filter(m=>String(m.v||'').trim()).flatMap(m=>[h('dt',{},m.k||'-'),h('dd',{class:'price'},measText(m))]))):null,
-    it.memo?h('p',{class:'memo'},it.memo):null,
     h('div',{class:'fld'},h('span',{class:'lb'},'코디'),
       lk.length?h('div',{class:'strip'},lk.map(l=>h('button',{type:'button',class:'thumb','aria-label':'코디 보기',onclick:()=>{s.close();openLookDetail(l.id)}},lookPhotos(l)[0]?h('img',{src:mediaUrl(lookPhotos(l)[0]),alt:l.memo||'코디 사진'}):null))):null,
       h('div',{class:'chips'},h('button',{type:'button',class:'btn',onclick:()=>{s.close();openLookEditor({itemIds:[it.id]})}},'이 옷의 코디 추가'))));
@@ -999,6 +1030,7 @@ function openEditor(src,id,q){
       h('span',{class:'hint'},'목록 편집을 누르면 안 쓰는 항목을 목록에서 뺄 수 있어요. 이미 저장된 기록의 값은 바뀌지 않아요.')),
     ownedRow,extraRow,
     h('div',{class:'row'},fld('평소 할인가','salePrice',F.salePrice),fld('통화','currency',F.currency)),
+    fld('메모','memo',F.memo),
     h('div',{class:'fld'},h('span',{class:'lb'},'사이즈 · 핏 · 색상 · 실측'),
       h('div',{class:'row'},fld('사이즈','size',F.size),fld('핏','fit',pickChips('fit',FITS),F.fit)),
       colorEditor(d.colors,()=>d.media.filter(m=>m.type!=='video').map(mediaUrl),'e-c'),
@@ -1008,7 +1040,6 @@ function openEditor(src,id,q){
       h('span',{class:'hint'},'수치는 cm 기준. 기본 항목은 카테고리(상의·하의·원피스)에 맞춰 바뀌고, 해당하는 것만 채우고 나머지는 비워 두세요. 기본 항목에 없는 부위는 이 제품만의 항목으로 추가돼요. 가슴·허리·엉덩이·허벅지·밑단·소매통은 단면과 둘레를 함께 보여 줘요.')),
     fld('태그','tags',tagOpts.length?h('div',{class:'chips'},tagOpts.map(t=>h('button',{type:'button',class:'chip',onclick:()=>{const cur=F.tags.value.split(',').map(s=>s.trim()).filter(Boolean);if(!cur.includes(t)) F.tags.value=[...cur,t].join(', ')}},'#'+t))):null,F.tags),
     tempEditor(d.temps,'e-t'),
-    fld('메모','memo',F.memo),
     h('div',{class:'fld'},h('span',{class:'lb'},'이 제품의 코디'),
       curLooks.length?h('div',{class:'swrow'},curLooks.map(l=>lookPhotos(l)[0]?h('img',{src:mediaUrl(lookPhotos(l)[0]),alt:l.memo||'코디 사진',class:'mini'}):null)):null,
       lookStrip,lookMemo,
