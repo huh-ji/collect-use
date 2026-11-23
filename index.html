@@ -485,6 +485,13 @@ function tempEditor(list,prefix){
     h('span',{class:'hint'},'계절을 고르고, 기온은 슬라이더 두 손잡이로 범위를 맞추세요. 슬라이더를 움직이지 않으면 기온은 저장되지 않아요. 입은 날마다 따로 추가할 수 있어요.'));
 }
 
+const MARK_TAG={rebuy:'재구매',travel:'여행',tryon:'입어봄'};
+const norm=it=>{if((it.marks||[]).length) it.tags=[...new Set([...(it.tags||[]),...it.marks.map(k=>MARK_TAG[k]).filter(Boolean)])];if(it.measures) it.measures=it.measures.map(normMeas);
+  if(it.orderAdj&&it.boughtPrice!=null){it.boughtPrice+=it.orderAdj;it.extraDisc=(it.extraDisc||0)+Math.max(0,-it.orderAdj);it.orderAdj=null}
+  return it};
+const INFO_PROMPT=`첨부 이미지는 쇼핑몰 상품 페이지를 캡쳐한 것(또는 그 일부)입니다. 이미지에 실제로 보이는 글자만 읽어서 아래 형식의 JSON 하나만 답하세요. 보이지 않는 값은 추측하지 말고 null로 두세요.
+{"brand": 브랜드명 또는 null(지그재그·에이블리처럼 여러 쇼핑몰이 입점한 앱에서는 상품명 위나 옆에 표시된 입점 쇼핑몰·브랜드 이름), "name": 브랜드명, 색상, 품번을 뺀 상품명 또는 null(상품 사진만 있고 상품명 글자가 없으면 null), "color": 이 상품에 대해 선택되었거나 하나만 표시된 색상 옵션 글자 그대로 또는 null(색상 선택지가 여러 개 나열만 되어 있으면 null), "code": 품번·상품코드·모델번호가 글자로 보이면 그대로, 아니면 null(주문번호나 URL의 숫자는 아님), "price": 지금 살 수 있는 판매 금액 숫자(할인가가 있으면 할인가, 취소선이 그어진 정가가 아닌 쪽) 또는 null, "currency": "KRW" 같은 통화 코드, "store": 화면에 쇼핑몰·앱 이름이 보일 때만 그 이름, 아니면 null}
+금액은 쉼표와 통화 기호 없이 숫자로만 적으세요.`;
 function fmtName(r){
   const t=v=>v==null?'':String(v).replace(/\s+/g,' ').trim();
   let nm=t(r.name);const br=t(r.brand),col=t(r.color),code=t(r.code);
